@@ -141,6 +141,11 @@ macro define_named_to_indices(A, T)
     end
 end
 
+# Introduce a simple `Id` name type for named indexing with integers
+struct Id{T}
+    id::T
+end
+
 @define_named_to_indices ANA Id
 
 function argcheck_constructor(data, names)
