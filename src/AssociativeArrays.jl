@@ -5,7 +5,7 @@ using ArgCheck, Base.Iterators, LinearAlgebra, SparseArrays, SplitApplyCombine,
 using Base: tail
 
 export Assoc, Num, Id
-export explode, triples, densify
+export explode, triples, densify, withdata
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
