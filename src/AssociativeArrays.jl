@@ -64,7 +64,6 @@ name_to_index(A, dim, I::AbstractArray) = [name_to_index(A, dim, i) for i in I]
 function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
     nd = ndims.(I′)
 
-    # TODO: Improve these error messages; specify the index/dimension
     @argcheck(
         all(x -> x == 0 || x == 1, nd),
         BoundsError("Multidimensional indexing within a single dimension is not supported.", I′)
