@@ -24,9 +24,6 @@ Base.length(A::ANA) = length(data(A))
 Base.ndims(A::ANA) = ndims(data(A))
 Base.IndexStyle(::Type{<:ANA{<:Any, <:Any, Td}}) where {Td} = IndexStyle(Td)
 
-Base.map!(f, A::ANA) = (map!(f, data(A)); A)
-Base.map(f, A::ANA) = unparameterized(A)(map(f, data(A)), names(A))
-
 # low-level indexing
 Base.getindex(A::ANA, i::Int) = data(A)[i]
 Base.getindex(A::ANA{T, N}, I::Vararg{Int, N}) where {T, N} = data(A)[I...]
