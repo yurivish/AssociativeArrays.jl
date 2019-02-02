@@ -172,12 +172,12 @@ function argcheck_constructor(data, names)
     @argcheck !any(T <: native_indices for T in eltype.(names)) "Names cannot be of type Int or AbstractArray."
 end
 
-densify(A::ANA) = unparameterized(A)(Array(data(A)), names(A))
-
 # Operate on the underlying data of an assoc for e.g. scalar broadcasting,
 # which is not defined for an assoc.
 withdata(f, A::ANA) = unparameterized(A)(f(A), names(A))
 withdata!(f!, A::ANA) = (f!(data(A)); A)
+
+densify(A::ANA) = withdata(Array, A)
 
 ##
 
