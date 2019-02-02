@@ -35,7 +35,6 @@ Base.setindex!(A::ANA{T, N}, v, I::Vararg{Int, N}) where {T, N} = setindex!(data
 # if the similar array is of the same size, names may move around.
 # So always return a "similar" array of the underlying array type.
 Base.similar(A::ANA) = similar(data(A))
-# Note: See below; the "But just to see...".
 Base.similar(A::ANA, ::Type{S}) where {S} = similar(data(A), S)
 Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims)
 
