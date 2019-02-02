@@ -191,9 +191,6 @@ function pretty(io::IO, A::Assoc{<:Any, 1})
     pretty(io, unparameterized(A)(reshape(data(A), size(A, 1), 1), names(A, 1), [Id("-")]))
 end
 
-# bug:
-# a = Assoc([1 2; 3 4], [:a, :b], [:c, :d]); a[[], named=true]
-# fails due to not containing a row.
 function pretty(io::IO, A::Assoc{<:Any, 2})
     arr = data(A)
 
@@ -236,7 +233,12 @@ function pretty(io::IO, A::Assoc{<:Any, 2})
     col_header = fmt.(vcat([""], n2[1:l], sep(nc), n2[max(end-r+1,1):end]))
     row_header = fmt.(vcat(n1[1:t], sep(nr), n1[max(end-b+1,1):end]))
     println(io, join(sz, '×'), " ", typeof(A), ":")
-    pretty_table(io, hcat(row_header, out), col_header, borderless, highlighters=(highlight_row_label,), alignment=:l)
+    if sz[1] > 0
+        pretty_table(io, hcat(row_header, out), col_header, borderless, highlighters=(highlight_row_label,), alignment=:l)
+    else
+        println(io, col_header[2:end])
+        println(io, "No rows.")
+    end
 end
 
 Base.show(io::IO, A::Assoc{<:Any, 1}) = pretty(io, A)
