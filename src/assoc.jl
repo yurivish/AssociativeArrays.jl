@@ -228,7 +228,7 @@ function pretty(io::IO, A::Assoc{<:Any, 2})
         Array(@view arr[max(end-b+1,1):end, 1:l])   sep(b,  nc)   Array(@view arr[max(end-b+1,1):end, max(end-r+1,1):end])
     ]
 
-    out[iszero.(out)] .= ""
+    out[[x isa Number && iszero(x) for x in out]] .= ""
 
     n1, n2 = names(A)
 
