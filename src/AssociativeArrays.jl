@@ -46,7 +46,7 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
     @argcheck(
-        !(length(ax) == 1 && length(ax[1]) != length(A)),
+        !(dim == 1 && length(ax) == 1 && length(ax[1]) != length(A)),
         BoundsError("Named 1-d indexing into an $(N)-d Assoc is not supported.", I)
     )
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
