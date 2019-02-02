@@ -48,17 +48,7 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
-#     if length(I) < N then all of size(A, N-dim:N) must == 1
-    # todo: revisit this condition; indexing with any number of
-    # indices is valid if the array is size 1 in all trailing dimensions
-
-    @boundscheck begin
-        if isempty(ax) || size(A, dim) != length(ax[1]) # <- unclear... why the isempty check?
-            # Disallow linear indexing with a single name
-            throw(BoundsError("Named indexing expects one name per dimension.", I)) # todo: identify the specific index
-        end
-    end
-
+    @argcheck length(ax) == N BoundsError("Named indexing expects one index per dimension.", I)
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
 end
 
