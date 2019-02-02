@@ -14,7 +14,6 @@ Base.size(A::ANA) = size(data(A))
 Base.axes(A::ANA) = axes(data(A))
 
 # Base array methods
-# todo: efficient hash functions?
 
 Base.size(A::ANA, dim) = size(data(A), dim)
 Base.axes(A::ANA, dim) = axes(data(A), dim)
@@ -38,26 +37,16 @@ Base.similar(A::ANA) = similar(data(A))
 Base.similar(A::ANA, ::Type{S}) where {S} = similar(data(A), S)
 Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims)
 
-# If we wanted to be adventurous:
-# This makes the default wrong in some cases, but right in the majority of cases.
-# Base.similar(A::ANA) = unparameterized(A)(similar(data(A)), names(A))
-# Base.similar(A::ANA, ::Type{S}) where {S} = unparameterized(A)(similar(data(A), S), names(A))
-
 # Note – AxisArrays defines further specializations for Axis types:
 # https://github.com/JuliaArrays/AxisArrays.jl/blob/48ec7350e3a8669dc17ef2e2f34069d86c227975/src/core.jl#L303
 
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
-    # Catch linear indexing with a name.
     @argcheck(
         !(length(ax) == 1 && length(ax[1]) != length(A)),
-        BoundsError("Named indexing expects one index per dimension.", I)
+        BoundsError("Named 1-d indexing into an $(N)-d Assoc is not supported.", I)
     )
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
-end
-
-struct Id{T}
-    id::T
 end
 
 name_missing(A, dim, i) = throw(ArgumentError("Missing name $i for dimension $dim."))
@@ -67,7 +56,6 @@ function name_to_index(A, dim, i)
         name_missing(A, dim, i)
     end
 end
-# name_to_index(A, dim, i::Id) = name_to_index(A, dim, i.name)
 name_to_index(A, dim, I::AbstractArray) = [name_to_index(A, dim, i) for i in I]
 
 function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
@@ -83,11 +71,6 @@ function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
         all(i <= N || n == 0 for (i, n) in enumerate(nd)),
         BoundsError("Trailing indices may not introduce new dimensions.", I′)
     )
-
-    # The length may be greater than N in the case of trailing singleton indices.
-    # It may be less than one in the case of zero-dimensional indexing into a 1x1x... array.
-    # And in fact I think it can be any length — with trailing singleton dimensions
-    @assert length(I′) <= 1 || length(I′) >= N
 
     data(A)[I′...]
 end
@@ -134,10 +117,9 @@ end
 
 const native_indices = Union{Int, AbstractArray}
 
-# todo: determine whether this causes dynamic dispatch
-getnames(A::ANA{T, N}, I::Tuple{}) where {T, N} = ()
-getnames(A::ANA{T, N}, I::Tuple{Vararg{native_indices}}) where {T, N} =
-    Tuple(Iterators.flatten(Iterators.repeated(names(A)[i][I[i]], ndims(I[i])) for i in 1:N))
+getnames(A::ANA{T, N}, I::Tuple{Vararg{native_indices, M}}) where {T, N, M} =
+    # The ternary condition handles cases with implicit trailing indices.
+    Tuple(Iterators.flatten(i > M ? () : Iterators.repeated(names(A, i)[I[i]], ndims(I[i])) for i in 1:N))
 
 Base.names(A::ANA, args...) = names(A, args...)
 
@@ -173,6 +155,11 @@ withdata(f, A::ANA) = unparameterized(A)(f(A), names(A))
 withdata!(f!, A::ANA) = (f!(data(A)); A)
 
 densify(A::ANA) = withdata(Array, A)
+
+# For use as a wrapper around eg. integer names
+struct Id{T}
+    id::T
+end
 
 ##
 
