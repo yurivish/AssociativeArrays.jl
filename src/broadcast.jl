@@ -1,4 +1,3 @@
-
 import Base.Broadcast: BroadcastStyle, AbstractArrayStyle, DefaultArrayStyle, Broadcasted
 
 struct NamedArrayStyle{Style <: BroadcastStyle} <: AbstractArrayStyle{Any} end
