@@ -21,10 +21,9 @@ function named_getindex(A::NamedArray, I′)
     value = default_named_getindex(A, I′)
 
     if all(iszero∘ndims, I′)
-        # We have a scalar; return it.
-        value
-    else @assert length(I′) >= N
-        # We have an array; name it.
+        value # unwrap scalars
+    else
+
         unparameterized(A)(value, getnames(A, I′))
     end
 end
