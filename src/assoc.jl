@@ -84,11 +84,12 @@ function named_getindex(A::Assoc{T, N}, I′) where {T, N}
     end
 end
 
+const Assoc1D = Assoc{T, 1, Td} where {T, Td}
 const Assoc2D = Assoc{T, 2, Td} where {T, Td}
 
 Base.adjoint(A::Assoc2D) = Assoc(adjoint(data(A)), names(A)[2], names(A)[1])
 Base.transpose(A::Assoc2D) = Assoc(transpose(data(A)), names(A)[2], names(A)[1])
-# todo: 1d
+# todo: n-d
 
 const ASA = AbstractSparseArray
 
@@ -123,7 +124,7 @@ Base.sum(A::Assoc, args...; kws...) =
 
 ##
 
-function triples(A::Assoc{<:Any, 2, <:AbstractSparseMatrix})
+function triples(A::Assoc2D{<:Any, <:AbstractSparseMatrix})
     # [(row, col, val), ...]
     rownames, colnames = A.names
     [
@@ -133,7 +134,7 @@ function triples(A::Assoc{<:Any, 2, <:AbstractSparseMatrix})
     ]
 end
 
-function triples(A::Assoc{<:Any, 2})
+function triples(A::Assoc2D)
     rownames, colnames = A.names
     vec([
         (row=rownames[I[1]], col=colnames[I[2]], i=I[1], j=I[2], val=A.data[I])

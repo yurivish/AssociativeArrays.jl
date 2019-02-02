@@ -1,3 +1,5 @@
+## A toy number type for custom algebras
+
 struct Num{T, +, *}
     value::T
     Num(value, +, *) = new{typeof(value), +, *}(value)

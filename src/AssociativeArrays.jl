@@ -50,7 +50,6 @@ Base.similar(A::ANA, ::Type{S}) where {S} = unparameterized(A)(similar(data(A), 
 # Note – AxisArrays defines further specializations for Axis types:
 # https://github.com/JuliaArrays/AxisArrays.jl/blob/48ec7350e3a8669dc17ef2e2f34069d86c227975/src/core.jl#L303
 
-
 # broadcast
 import Base.Broadcast: BroadcastStyle, AbstractArrayStyle, DefaultArrayStyle, Broadcasted
 
@@ -112,9 +111,9 @@ end
     unparameterized(A)(value, noms)
 end
 
-# Our copy was based on:
+# Our `copy` was based on:
 # https://githucom/JuliaDiffEq/RecursiveArrayTools.jl/blob/e666b741ed713e32494de9f164fec13fc15f8391/src/array_partition.jl#L235
-# Note: copyto! should look essentially the same as above:
+# Note: `copyto!` should look essentially the same as above:
 # https://githucom/JuliaDiffEq/RecursiveArrayTools.jl/blob/e666b741ed713e32494de9f164fec13fc15f8391/src/array_partition.jl#L243
 
 # Return a tuple of all named arrays
@@ -281,7 +280,7 @@ densify(A::ANA) = unparameterized(A)(Array(data(A)), names(A))
 ##
 
 include("namedarray.jl")
-include("associativearray.jl")
+include("assoc.jl")
 include("num.jl")
 
 end # module
