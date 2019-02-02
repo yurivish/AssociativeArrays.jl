@@ -10,6 +10,9 @@ export explode, triples, densify
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
 
+# Generic named array convenience constructor for eg. Assoc(data, names_1, names_2, ...)
+(::Type{Ta})(data::AbstractArray{T, N}, names::Vararg{AbstractArray, N}) where {Ta <: ANA, T, N} = Ta(data, names)
+
 Base.size(A::ANA) = size(data(A))
 Base.axes(A::ANA) = axes(data(A))
 

@@ -10,7 +10,6 @@ struct NamedArray{T, N, Td} <: AbstractNamedArray{T, N, Td}
         new{T, N, typeof(data)}(data, Tuple(names), name_to_index)
     end
 end
-NamedArray(data::AbstractArray{T, N}, names::Vararg{AbstractArray, N}) where {T, N} = NamedArray(data, names)
 
 names(A::NamedArray) = A.names
 data(A::NamedArray) = A.data

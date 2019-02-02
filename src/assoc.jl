@@ -22,7 +22,6 @@ struct Assoc{T, N, Td} <: AbstractNamedArray{T, N, Td}
         new{T, N, typeof(data)}(data, Tuple(names), name_to_index, group_indices)
     end
 end
-Assoc(data::AbstractArray{T, N}, names::Vararg{AbstractArray, N}) where {T, N} = Assoc(data, names)
 
 names(A::Assoc) = A.names
 data(A::Assoc) = A.data
