@@ -24,8 +24,6 @@ struct Assoc{T, N, Td} <: AbstractNamedArray{T, N, Td}
 end
 Assoc(data::AbstractArray{T, N}, names::Vararg{AbstractArray, N}) where {T, N} = Assoc(data, names)
 
-const AssociativeArray = Assoc
-
 names(A::Assoc) = A.names
 data(A::Assoc) = A.data
 name_to_index(A::Assoc, dim) = A.name_to_index[dim]
