@@ -132,7 +132,7 @@ allnamed(a::Any) = ()
 unwrap(x, ::Any) = x
 unwrap(A::ANA, param) = data(A)
 
-@inline unwrap_args(args::Tuple, param) = (unwrap(args[1], param), unwrap_args(Base.tail(args), param)...)
+@inline unwrap_args(args::Tuple, param) = (unwrap(args[1], param), unwrap_args(tail(args), param)...)
 unwrap_args(args::Tuple{Any}, param) = (unwrap(args[1], param),)
 unwrap_args(args::Tuple{}, ::Any, ) = ()
 
