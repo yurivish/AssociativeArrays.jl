@@ -20,7 +20,8 @@ function named_getindex(A::NamedArray, I′)
     value = default_named_getindex(A, I′)
 
     if all(iszero∘ndims, I′)
-        value # unwrap scalars
+        # scalar indexing
+        value
     else
 
         unparameterized(A)(value, getnames(A, I′))

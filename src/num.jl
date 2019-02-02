@@ -1,4 +1,4 @@
-## A toy number type for custom algebras
+## Toy number type for custom algebras
 
 struct Num{T, +, *}
     value::T
