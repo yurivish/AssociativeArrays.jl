@@ -88,7 +88,8 @@ ofnametype(A::ANA, dim, name) = name isa keytype(name_to_index(A, dim))
 # Fast inference path for common basic indexing patterns
 fast_path_scalars = Union{Int, CartesianIndex, Colon}
 fast_path_arrays = Union{AbstractVector{<:Union{fast_path_scalars, Bool}}}
-Base.getindex(A::ANA, I::Union{fast_path_scalars, fast_path_arrays, AbstractVector{<:fast_path_scalars}}...) =
+fast_path_indices = Union{fast_path_scalars, fast_path_arrays, AbstractVector{<:fast_path_scalars}}
+Base.getindex(A::ANA, I::fast_path_indices...) =
     data(A)[I...]
 
 function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
@@ -116,6 +117,8 @@ function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
         data(A)[I′...]
     end
 end
+
+Base.view(A::ANA, I::fast_path_indices...) = view(data(A), I...)
 
 const native_indices = Union{Int, AbstractArray}
 
