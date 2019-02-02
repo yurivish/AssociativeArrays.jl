@@ -34,15 +34,15 @@ Base.setindex!(A::ANA{T, N}, v, I::Vararg{Int, N}) where {T, N} = setindex!(data
 # We cannot know in general whether dimension names are preserved -- even
 # if the similar array is of the same size, names may move around.
 # So always return a "similar" array of the underlying array type.
-# Base.similar(A::ANA) = similar(data(A))
+Base.similar(A::ANA) = similar(data(A))
 # Note: See below; the "But just to see...".
-# Base.similar(A::ANA, ::Type{S}) where {S} = similar(data(A), S)
+Base.similar(A::ANA, ::Type{S}) where {S} = similar(data(A), S)
 Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims)
 
-# But just to see what happens...
+# If we wanted to be adventurous:
 # This makes the default wrong in some cases, but right in the majority of cases.
-Base.similar(A::ANA) = unparameterized(A)(similar(data(A)), names(A))
-Base.similar(A::ANA, ::Type{S}) where {S} = unparameterized(A)(similar(data(A), S), names(A))
+# Base.similar(A::ANA) = unparameterized(A)(similar(data(A)), names(A))
+# Base.similar(A::ANA, ::Type{S}) where {S} = unparameterized(A)(similar(data(A), S), names(A))
 
 # Note – AxisArrays defines further specializations for Axis types:
 # https://github.com/JuliaArrays/AxisArrays.jl/blob/48ec7350e3a8669dc17ef2e2f34069d86c227975/src/core.jl#L303
@@ -190,12 +190,13 @@ function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
     # It may be less than one in the case of zero-dimensional indexing into a 1x1x... array.
     @assert length(I′) <= 1 || length(I′) >= N
     value = data(A)[I′...]
-    # `reduce` to avoid the sum(()) edge case
+    # `reduce` with an explicit init to avoid the sum(()) edge case
     nd_sum = reduce(+, nd, init=0)
 
     if nd_sum == 0
-        # value # We have a scalar; return it.
-        unparameterized(A)(value)
+        # We have a scalar; wrao it.
+        # unparameterized(A)(value)
+        value
     else @assert length(I′) >= N
         unparameterized(A)(value, getnames(A, I′))
     end
@@ -274,6 +275,11 @@ function argcheck_constructor(data, names)
 end
 
 densify(A::ANA) = unparameterized(A)(Array(data(A)), names(A))
+
+# Operate on the underlying data of an assoc for e.g. scalar broadcasting,
+# which is not defined for an assoc.
+withdata(f, A::ANA) = unparameterized(A)(f(A), names(A))
+withdata!(f!, A::ANA) = (f!(data(A)); A)
 
 ##
 
