@@ -4,7 +4,7 @@ using ArgCheck, Base.Iterators, LinearAlgebra, SparseArrays, SplitApplyCombine,
       OrderedCollections, PrettyTables
 using Base: tail
 
-export Assoc, Num, Name
+export Assoc, Num, Id
 export explode, triples, densify
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
@@ -154,11 +154,9 @@ function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
 end
 
-struct Name{T}
-    name::T
+struct Id{T}
+    id::T
 end
-
-const Id = Name # More concise and makes sense to talk about a "row ID"...
 
 name_missing(A, dim, i) = throw(ArgumentError("Missing name $i for dimension $dim."))
 
@@ -167,7 +165,7 @@ function name_to_index(A, dim, i)
         name_missing(A, dim, i)
     end
 end
-# name_to_index(A, dim, i::Name) = name_to_index(A, dim, i.name)
+# name_to_index(A, dim, i::Id) = name_to_index(A, dim, i.name)
 name_to_index(A, dim, I::AbstractArray) = [name_to_index(A, dim, i) for i in I]
 
 function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
@@ -256,7 +254,7 @@ macro define_named_to_indices(A, T)
     end
 end
 
-@define_named_to_indices ANA Name
+@define_named_to_indices ANA Id
 
 function argcheck_constructor(data, names)
     @argcheck all(allunique.(names)) "Names must be unique within each dimension."

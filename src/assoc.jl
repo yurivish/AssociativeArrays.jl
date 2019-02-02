@@ -177,11 +177,11 @@ const highlight_row_label = Highlighter(
 sep(sz...) = repeat(["..."], sz...)
 
 fmt(x::Pair) = "$(first(x))|$(last(x))"
-fmt(x::Name) = x.name
+fmt(x::Id) = x.id
 fmt(x) = x
 
 function pretty(io::IO, A::Assoc{<:Any, 1})
-    pretty(io, unparameterized(A)(reshape(data(A), size(A, 1), 1), names(A, 1), [Name("-")]))
+    pretty(io, unparameterized(A)(reshape(data(A), size(A, 1), 1), names(A, 1), [Id("-")]))
 end
 
 # bug:
