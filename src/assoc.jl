@@ -127,19 +127,19 @@ Base.sum(A::Assoc, args...; kws...) =
 
 function triples(A::Assoc2D{<:Any, <:AbstractSparseMatrix})
     # [(row, col, val), ...]
-    rownames, colnames = A.names
+    rownames, colnames = names(A)
     [
         (row=rownames[i], col=colnames[j], i=i, j=j, val=val)
-        for (i, j, val) in zip(findnz(A.data)...)
+        for (i, j, val) in zip(findnz(data(A))...)
         if !iszero(val)
     ]
 end
 
 function triples(A::Assoc2D)
-    rownames, colnames = A.names
+    rownames, colnames = names(A)
     vec([
-        (row=rownames[I[1]], col=colnames[I[2]], i=I[1], j=I[2], val=A.data[I])
-        for I in CartesianIndices(A.data)
+        (row=rownames[I[1]], col=colnames[I[2]], i=I[1], j=I[2], val=data(A)[I])
+        for I in CartesianIndices(data(A))
     ])
 end
 
@@ -222,7 +222,7 @@ function pretty(io::IO, A::Assoc{<:Any, 2})
 
     out[iszero.(out)] .= ""
 
-    n1, n2 = A.names
+    n1, n2 = names(A)
 
     col_header = fmt.(vcat([""], n2[1:l], sep(nc), n2[max(end-r+1,1):end]))
     row_header = fmt.(vcat(n1[1:t], sep(nr), n1[max(end-b+1,1):end]))
