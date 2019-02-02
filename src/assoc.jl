@@ -58,13 +58,7 @@ end
 descalarize(x::AbstractArray) = x
 descalarize(x) = [x]
 
-function named_getindex(A::Assoc{T, N}, I′) where {T, N}
-    @boundscheck if N == 0
-        # There are a few tricky corner cases here where it is not obvious
-        # how to stay closed under indexing. So just disallow this case for now.
-        throw(BoundsError("Named indexing into a zero-dimensional array is not yet supported."))
-    end
-
+function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
     # Lift scalar indices to arrays so that the result of indexing matches
     # the dimensionality of A. We iterate rather than broadcast to avoid
     # descalarizing trailing dimensions.
@@ -89,8 +83,10 @@ function named_getindex(A::Assoc{T, N}, I′) where {T, N}
         )
     end
 
+    @assert length(I′′) >= N "There should be at least as many (nonscalar) indices as array dimensions"
     value = default_named_getindex(A, I′′)
-    unparameterized(A)(value, getnames(A, I′′))
+
+    unparameterized(A)(N == 0 ? fill!(similar(Td), value) : value, getnames(A, I′′))
 end
 
 const Assoc1D = Assoc{T, 1, Td} where {T, Td}
