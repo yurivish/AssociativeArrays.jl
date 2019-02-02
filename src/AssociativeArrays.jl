@@ -48,7 +48,11 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
-    @argcheck length(ax) == N BoundsError("Named indexing expects one index per dimension.", I)
+    # Catch linear indexing with a name.
+    @argcheck(
+        !(length(ax) == 1 && length(ax[1]) != length(A)),
+        BoundsError("Named indexing expects one index per dimension.", I)
+    )
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
 end
 
@@ -82,6 +86,7 @@ function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
 
     # The length may be greater than N in the case of trailing singleton indices.
     # It may be less than one in the case of zero-dimensional indexing into a 1x1x... array.
+    # And in fact I think it can be any length — with trailing singleton dimensions
     @assert length(I′) <= 1 || length(I′) >= N
 
     data(A)[I′...]

@@ -78,7 +78,16 @@ function named_getindex(A::Assoc{T, N}, I′) where {T, N}
     else @assert len < N
         # More dimensions than indices; pad to N with singleton arrays.
         singleton = [1]
-        Tuple(dim > len ? singleton : descalarize(I′[dim]) for dim in 1:N)
+        Tuple(
+            if dim > len
+                # This means you tried to partially index into an array that has non-singleton trailing dimensions.
+                @assert isone(size(A, dim)) "Size in each trailing dimension must be 1."
+                singleton
+            else
+                descalarize(I′[dim])
+            end
+            for dim in 1:N
+        )
     end
 
     value = default_named_getindex(A, I′′)
