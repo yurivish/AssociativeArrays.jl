@@ -1,0 +1,89 @@
+
+import Base.Broadcast: BroadcastStyle, AbstractArrayStyle, DefaultArrayStyle, Broadcasted
+
+struct NamedArrayStyle{Style <: BroadcastStyle} <: AbstractArrayStyle{Any} end
+NamedArrayStyle(::S) where {S} = NamedArrayStyle{S}()
+NamedArrayStyle(::S, ::Val{N}) where {S, N} = NamedArrayStyle(S(Val(N)))
+NamedArrayStyle(::Val{N}) where {N} = NamedArrayStyle{DefaultArrayStyle{N}}()
+NamedArrayStyle(::Broadcast.Unknown) = Broadcast.Unknown()
+
+# promotion rules
+
+function BroadcastStyle(::Type{<:ANA{T, N, Td}}) where {T, N, Td}
+    NamedArrayStyle(BroadcastStyle(Td))
+end
+
+function BroadcastStyle(::NamedArrayStyle{A}, ::NamedArrayStyle{B}) where {A, B}
+    NamedArrayStyle(BroadcastStyle(A(), B()))
+end
+
+# Define these with DefaultArrayStyle for disambiguation.
+function BroadcastStyle(::NamedArrayStyle{A}, ::B) where {A, B <: DefaultArrayStyle}
+    NamedArrayStyle(BroadcastStyle(A(), B()))
+end
+
+function BroadcastStyle(::A, ::NamedArrayStyle{B}) where {A <: DefaultArrayStyle, B}
+    NamedArrayStyle(BroadcastStyle(A(), B()))
+end
+
+# Note: If these want to get called there will be an ambiguity error with Base. But they're here temporarily
+# to help us figure out what more specific methods we want to add in practice.
+function BroadcastStyle(::NamedArrayStyle{A}, ::B) where {A, B <: AbstractArrayStyle}
+    NamedArrayStyle(BroadcastStyle(A(), B()))
+end
+
+function BroadcastStyle(::A, ::NamedArrayStyle{B}) where {A <: AbstractArrayStyle, B}
+    NamedArrayStyle(BroadcastStyle(A(), B()))
+end
+
+@inline function Base.copy(bc::Broadcasted{NamedArrayStyle{Style}}) where Style
+    # Gather a tuple of all named arrays in this broadcast expression
+    As = allnamed(bc)
+
+    # Determine the maximal number of dimensions
+    i = argmax(ndims.(As))
+    A = As[i]
+    noms = names(A)
+
+    # Verify that names match along all dimensions of all named arrays.
+    # Use isequal to correctly handle `missing` labels
+    @argcheck(
+        all(isequal(noms[i], names(A′, i)) for A′ in As for i in 1:ndims(A′)),
+        "All names must match to broadcast across multiple named arrays."
+    )
+
+    # Compute the broadcast result on unwrapped arrays,
+    value = copy(unwrap(bc, nothing))
+
+    # Then re-wrap the result in a named array of the appropriate type.
+    unparameterized(A)(value, noms)
+end
+
+# Our `copy` was based on:
+# https://githucom/JuliaDiffEq/RecursiveArrayTools.jl/blob/e666b741ed713e32494de9f164fec13fc15f8391/src/array_partition.jl#L235
+# Note: `copyto!` should look essentially the same as above:
+# https://githucom/JuliaDiffEq/RecursiveArrayTools.jl/blob/e666b741ed713e32494de9f164fec13fc15f8391/src/array_partition.jl#L243
+
+# Return a tuple of all named arrays
+allnamed(bc::Broadcasted) = allnamed(bc.args)
+# ::Tuple -> search it
+@inline allnamed(args::Tuple) = (allnamed(args[1])..., allnamed(tail(args))...)
+# ::ANA -> keep it
+allnamed(a::ANA) = (a,)
+# ::EmptyTuple -> discard it
+allnamed(args::Tuple{}) = ()
+# ::Any -> discard it
+allnamed(a::Any) = ()
+
+# Unwrap all of the named arrays within a Broadcasted expression. Note: `param` is currently unused, but is passed down
+# to the unwrap(A::ANA, param) method in case we want to control the way an array is unwrapped in the future.
+@inline unwrap(bc::Broadcasted{Style}, param) where Style = Broadcasted{Style}(bc.f, unwrap_args(bc.args, param), bc.axes)
+@inline unwrap(bc::Broadcasted{NamedArrayStyle{Style}}, param) where Style = Broadcasted{Style}(bc.f, unwrap_args(bc.args, param), bc.axes)
+unwrap(x, ::Any) = x
+unwrap(A::ANA, param) = data(A)
+
+@inline unwrap_args(args::Tuple, param) = (unwrap(args[1], param), unwrap_args(tail(args), param)...)
+unwrap_args(args::Tuple{Any}, param) = (unwrap(args[1], param),)
+unwrap_args(args::Tuple{}, ::Any, ) = ()
+
+# todo: copyto!
