@@ -197,7 +197,7 @@ function pretty(io::IO, A::Assoc{<:Any, 2})
     arr = data(A)
 
     # half-width and half-height
-    w = 2
+    w = 3
     h = 5
 
     sz = size(arr)
