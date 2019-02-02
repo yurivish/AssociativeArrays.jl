@@ -158,10 +158,6 @@ withdata!(f!, A::ANA) = (f!(data(A)); A)
 
 densify(A::ANA) = withdata(Array, A)
 
-# For use as a wrapper around eg. integer names
-struct Id{T}
-    id::T
-end
 
 ##
 

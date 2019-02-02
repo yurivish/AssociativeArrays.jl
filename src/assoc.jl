@@ -85,8 +85,15 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
 
     @assert length(I′′) >= N "There should be at least as many (nonscalar) indices as array dimensions"
     value = default_named_getindex(A, I′′)
-
-    unparameterized(A)(N == 0 ? fill!(similar(Td), value) : value, getnames(A, I′′))
+    unparameterized(A)(
+        # Handle the annoying case of zero-dimensional array indexing
+        if N == 0
+            isarray(value) ? value : fill!(similar(Td), value)
+        else
+            value
+        end,
+        getnames(A, I′′)
+    )
 end
 
 const Assoc1D = Assoc{T, 1, Td} where {T, Td}

@@ -23,10 +23,10 @@ end
 
 # zero-dimensional-specific tests
 let a = Assoc(fill(1))
-    @test_throws BoundsError a[fill(1), named=true] == a
-    @test_throws BoundsError a[named=true]
-    @test_throws BoundsError a[1, named=true]
-    @test_throws BoundsError a[1,1,1,named=true]
+    @test a[fill(1), named=true] == a
+    @test a[named=true] == a
+    @test a[1, named=true] == a
+    @test a[1,1,1,named=true] == a
 end
 
 zero_dimensional_gauntlet(fill(1))
