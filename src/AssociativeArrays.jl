@@ -46,8 +46,8 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
     @argcheck(
-        !(dim == 1 && length(ax) == 1 && length(ax[1]) != length(A)),
-        BoundsError("Named 1-d indexing into an $(N)-d Assoc is not supported.", I)
+        !(N > 1 && length(ax) == 1 && length(ax[1]) == length(A)),
+        BoundsError("Named linear indexing into an $(N)-d Assoc is not supported.", I)
     )
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
 end
@@ -161,10 +161,20 @@ end
 
 # Operate on the underlying data of an assoc for e.g. scalar broadcasting,
 # which is not defined for an assoc.
-withdata(f, A::ANA) = unparameterized(A)(f(A), names(A))
+withdata(f, A::ANA) = unparameterized(A)(f(data(A)), names(A))
 withdata!(f!, A::ANA) = (f!(data(A)); A)
 
 densify(A::ANA) = withdata(Array, A)
+
+Base.cumsum(A::ANA, args...; kw...) = withdata(x -> cumsum(x, args...; kw...), A)
+Base.cumsum!(A::ANA, args...; kw...) = withdata!(x -> cumsum(x, args...; kw...), A)
+
+# What to do about names for the dimensions reduced out?
+# function Base.sum(A::Assoc, args...; names, dims, kws...)
+#     res = sum(data(A), args...; name=name, dims=dims, kw...)
+#     # Assoc(res, Tuple(dims) # names.(Ref(A), size(res))
+#     # NOTE: Dims might be e.g :
+# end
 
 ##
 

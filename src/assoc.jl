@@ -6,7 +6,8 @@ struct Assoc{T, N, Td} <: AbstractNamedArray{T, N, Td}
     group_indices::Tuple
     function Assoc(data::AbstractArray{T, N}, names::Tuple{Vararg{AbstractArray, N}}) where {T, N}
         argcheck_constructor(data, names)
-        name_to_index = Tuple(Dict(ks .=> vs) for (ks, vs) in zip(names, axes(data)))
+        # We make these ordered os that the group indices are in the right order. That's the only reason so far.
+        name_to_index = Tuple(OrderedDict(ks .=> vs) for (ks, vs) in zip(names, axes(data)))
         group_indices = Tuple(
             # Disallow using native indices as group shortcuts
             # NOTE: This now breaks if you have some pairs and some not.
@@ -197,7 +198,7 @@ function pretty(io::IO, A::Assoc{<:Any, 2})
     arr = data(A)
 
     # half-width and half-height
-    w = 3
+    w = 4
     h = 5
 
     sz = size(arr)
