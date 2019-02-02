@@ -153,7 +153,6 @@ lookup(arr) = Dict(arr .=> LinearIndices(arr))
 function explode_sparse(t) # ::Vector{NamedTuple{(:row, :col, :val)}}
     rk = identity.(OrderedSet(x.row for x in t))
     ck = identity.(OrderedSet(x.col for x in t))
-    # @show first(ck) eltype(ck)
     eltype(rk) <: Pair && sort!(rk, by=first, alg=Base.Sort.DEFAULT_STABLE)
     eltype(ck) <: Pair && sort!(ck, by=first, alg=Base.Sort.DEFAULT_STABLE)
     rl, cl = lookup(rk), lookup(ck)

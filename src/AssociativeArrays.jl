@@ -51,6 +51,7 @@ Base.similar(A::ANA, ::Type{S}) where {S} = unparameterized(A)(similar(data(A), 
 # https://github.com/JuliaArrays/AxisArrays.jl/blob/48ec7350e3a8669dc17ef2e2f34069d86c227975/src/core.jl#L303
 
 # broadcast
+
 import Base.Broadcast: BroadcastStyle, AbstractArrayStyle, DefaultArrayStyle, Broadcasted
 
 struct NamedArrayStyle{Style <: BroadcastStyle} <: AbstractArrayStyle{Any} end
@@ -169,7 +170,7 @@ function name_to_index(A, dim, i)
         name_missing(A, dim, i)
     end
 end
-# name_to_index(A, dim, i::Name) = throw(2) && name_to_index(A, dim, i.name)
+# name_to_index(A, dim, i::Name) = name_to_index(A, dim, i.name)
 name_to_index(A, dim, I::AbstractArray) = [name_to_index(A, dim, i) for i in I]
 
 function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
