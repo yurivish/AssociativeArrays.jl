@@ -65,12 +65,8 @@ one_dimensional_gauntlet(Assoc([1], [:a]))
 
 Should be a bug:
 
-julia> td = Assoc(reshape([1 2 3], 1, 3, 1), [:x], [:a, :b, :c], [:e])
-julia> td[named=true]
-1×1×1 Assoc{Int64,3,Array{Int64,3}}:
-[:, :, 1] =
- 1
-
-And now is. An Assertion, at least.
+using Serialization
+dogs = deserialize("2012.ser")
+dogs[[:name => "bailey", :name => "pugsley"]]
 
 =#
