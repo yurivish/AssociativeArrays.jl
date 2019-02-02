@@ -173,33 +173,22 @@ name_to_index(A, dim, I::AbstractArray) = [name_to_index(A, dim, i) for i in I]
 function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
     nd = ndims.(I′)
 
-    @boundscheck begin
-        # TODO: Improve these error messages; specify the index/dimension
-        @argcheck(
-            all(x -> x == 0 || x == 1, nd),
-            BoundsError("Multidimensional indexing within a single dimension is not supported.", I′)
-        )
+    # TODO: Improve these error messages; specify the index/dimension
+    @argcheck(
+        all(x -> x == 0 || x == 1, nd),
+        BoundsError("Multidimensional indexing within a single dimension is not supported.", I′)
+    )
 
-        @argcheck(
-            all(i <= N || n == 0 for (i, n) in enumerate(nd)),
-            BoundsError("Trailing indices may not introduce new dimensions.", I′)
-        )
-    end
+    @argcheck(
+        all(i <= N || n == 0 for (i, n) in enumerate(nd)),
+        BoundsError("Trailing indices may not introduce new dimensions.", I′)
+    )
 
     # The length may be greater than N in the case of trailing singleton indices.
     # It may be less than one in the case of zero-dimensional indexing into a 1x1x... array.
     @assert length(I′) <= 1 || length(I′) >= N
-    value = data(A)[I′...]
-    # `reduce` with an explicit init to avoid the sum(()) edge case
-    nd_sum = reduce(+, nd, init=0)
 
-    if nd_sum == 0
-        # We have a scalar; wrao it.
-        # unparameterized(A)(value)
-        value
-    else @assert length(I′) >= N
-        unparameterized(A)(value, getnames(A, I′))
-    end
+    data(A)[I′...]
 end
 
 named_getindex(A::ANA, I′) = default_named_getindex(A, I′)
@@ -244,6 +233,8 @@ end
 
 const native_indices = Union{Int, AbstractArray}
 
+# todo: determine whether this causes dynamic dispatch
+getnames(A::ANA{T, N}, I::Tuple{}) where {T, N} = ()
 getnames(A::ANA{T, N}, I::Tuple{Vararg{native_indices}}) where {T, N} =
     Tuple(Iterators.flatten(Iterators.repeated(names(A)[i][I[i]], ndims(I[i])) for i in 1:N))
 
@@ -256,6 +247,7 @@ names(A::ANA, dim) = names(A)[dim]
 # data(A)::Array{T, N}
 # name_to_index(A, dim)::Dict
 # unparameterized(::Arr) = Arr
+# ^— We expect all subtypes to implement Arr(data, names) and this function finds the constructor.
 
 macro define_named_to_indices(A, T)
     quote

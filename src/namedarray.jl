@@ -17,4 +17,18 @@ data(A::NamedArray) = A.data
 name_to_index(A::NamedArray, dim) = A.name_to_index[dim]
 unparameterized(::NamedArray) = NamedArray
 
+function named_getindex(A::NamedArray, I′)
+    nd = ndims.(I′)
+    value = default_named_getindex(A, I′)
+
+    # `reduce` with an explicit init to avoid the sum(()) edge case
+    if reduce(+, nd, init=0) == 0
+        # We have a scalar; return it.
+        value
+    else @assert length(I′) >= N
+        # We have an array; wrap it in a named array.
+        unparameterized(A)(value, getnames(A, I′))
+    end
+end
+
 @define_named_to_indices NamedArray Union{Symbol, String, Tuple, Pair}

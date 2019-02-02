@@ -72,16 +72,19 @@ function named_getindex(A::Assoc{T, N}, I′) where {T, N}
     # the dimensionality of A. We iterate rather than broadcast to avoid
     # descalarizing trailing dimensions.
     len = length(I′)
-    if len == N
-        default_named_getindex(A, descalarize.(I′))
+    I′′ = if len == N
+        descalarize.(I′)
     elseif len > N
         # More indices than dimensions; only lift those <= N
-        default_named_getindex(A, Tuple(dim > N ? i : descalarize(i) for (dim, i) in enumerate(I′)))
+        Tuple(dim > N ? i : descalarize(i) for (dim, i) in enumerate(I′))
     else @assert len < N
         # More dimensions than indices; pad to N with singleton arrays.
         singleton = [1]
-        default_named_getindex(A, Tuple(dim > len ? singleton : descalarize(I′[dim]) for dim in 1:N))
+        Tuple(dim > len ? singleton : descalarize(I′[dim]) for dim in 1:N)
     end
+
+    value = default_named_getindex(A, I′′)
+    unparameterized(A)(value, getnames(A, I′′))
 end
 
 const Assoc1D = Assoc{T, 1, Td} where {T, Td}
