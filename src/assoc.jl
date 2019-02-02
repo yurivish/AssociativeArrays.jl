@@ -181,6 +181,9 @@ function pretty(io::IO, A::Assoc{<:Any, 1})
     pretty(io, unparameterized(A)(reshape(data(A), size(A, 1), 1), names(A, 1), [Name("-")]))
 end
 
+# bug:
+# a = Assoc([1 2; 3 4], [:a, :b], [:c, :d]); a[[], named=true]
+# fails due to not containing a row.
 function pretty(io::IO, A::Assoc{<:Any, 2})
     arr = data(A)
 
