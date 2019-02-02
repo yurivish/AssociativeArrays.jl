@@ -163,7 +163,6 @@ withdata!(f!, A::ANA) = (f!(data(A)); A)
 
 densify(A::ANA) = withdata(Array, A)
 
-
 ##
 
 include("broadcast.jl")
