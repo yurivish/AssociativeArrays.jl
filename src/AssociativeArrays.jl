@@ -5,7 +5,7 @@ using ArgCheck, Base.Iterators, LinearAlgebra, SparseArrays, SplitApplyCombine,
 using Base: tail
 
 export Assoc, Num, Id
-export explode, triples, densify, withdata
+export explode, triples, densify, apply
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
@@ -161,13 +161,13 @@ end
 
 # Operate on the underlying data of an assoc for e.g. scalar broadcasting,
 # which is not defined for an assoc.
-withdata(f, A::ANA) = unparameterized(A)(f(data(A)), names(A))
-withdata!(f!, A::ANA) = (f!(data(A)); A)
+apply(f, A::ANA) = unparameterized(A)(f(data(A)), names(A))
+apply!(f!, A::ANA) = (f!(data(A)); A)
 
-densify(A::ANA) = withdata(Array, A)
+densify(A::ANA) = apply(Array, A)
 
-Base.cumsum(A::ANA, args...; kw...) = withdata(x -> cumsum(x, args...; kw...), A)
-Base.cumsum!(A::ANA, args...; kw...) = withdata!(x -> cumsum(x, args...; kw...), A)
+Base.cumsum(A::ANA, args...; kw...) = apply(x -> cumsum(x, args...; kw...), A)
+Base.cumsum!(A::ANA, args...; kw...) = apply!(x -> cumsum(x, args...; kw...), A)
 
 # What to do about names for the dimensions reduced out?
 # function Base.sum(A::Assoc, args...; names, dims, kws...)
