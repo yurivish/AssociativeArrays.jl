@@ -118,9 +118,9 @@ end
 
 const SparseAssoc2D = Assoc2D{T, <:ASA} where {T}
 
-sparse_mul_t = Union{SparseAssoc2D, SparseAssoc2D{<:Any, <:Union{Transpose, Adjoint}}}
+sparse_assoc_t = Union{SparseAssoc2D, SparseAssoc2D{<:Any, <:Union{Transpose, Adjoint}}}
 
-function Base.:*(A::sparse_mul_t, B::sparse_mul_t) # sparse
+function Base.:*(A::sparse_assoc_t, B::sparse_assoc_t) # sparse
     ia, ib = matmul_indices(A, 2, B, 1)
     arr = sparse(data(A))[:, ia] * sparse(data(B))[ib, :]
     Assoc(dropzeros!(arr), names(A, 1), names(B, 2))
@@ -132,10 +132,38 @@ function Base.:*(A::Assoc2D, B::Assoc2D) # nonsparse
     Assoc(arr, names(A, 1), names(B, 2))
 end
 
-Base.sum(A::Assoc, args...; kws...) =
-    sum(data(A), args...; kws...) # unparameterized(A)(, names(A))
+function Base.:+(A::Assoc2D, B::Assoc2D) # todo: sparse/nonsparse
+    na1 = names(A, 1)
+    nb1 = names(B, 1)
+    k1 = collect(na1 ∪ nb1)
+
+    na2 = names(A, 2)
+    nb2 = names(B, 2)
+    k2 = collect(na2 ∪ nb2)
+
+    T = promote_type(eltype(A), eltype(B))
+    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
+    C[na1, na2] .+= data(A)
+    C[nb1, nb2] .+= data(B)
+
+    data!(dropzeros!, C)
+end
+
+
+# Base.sum(A::Assoc, args...; kws...) =
+#     sum(data(A), args...; kws...) # unparameterized(A)(, names(A))
 
 ##
+
+function condense(A::SparseAssoc2D)
+    # note: not generic enough to handle non-OneTo axes, e.g. OffsetArrays
+    # remove fully zero columns and rows
+    a = dropzeros(data(A))
+    I, J, V = findnz(a)
+    # @show I J a[I, J]
+    arr = a[unique(I), unique(J)]
+    Assoc(arr, names(A, 1, axes(arr, 1)), names(A, 2, axes(arr, 2)))
+end
 
 function triples(A::Assoc2D{<:Any, <:AbstractSparseMatrix})
     # [(row, col, val), ...]
