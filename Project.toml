@@ -1,7 +1,7 @@
 name = "AssociativeArrays"
 uuid = "0e17ae22-23c4-11e9-1344-ffe12f5f761d"
 authors = ["Yuri Vishnevsky <yurivish@gmail.com>"]
-version = "0.0.0001"
+version = "0.0.1"
 
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
@@ -12,11 +12,11 @@ RecursiveArrayTools = "731186ca-8d62-57ce-b412-fbd966d074cd"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SplitApplyCombine = "03a91e81-4c3e-53e1-a0a4-9c0c8f19dd66"
 
+[compat]
+julia = "1.1"
+
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test"]
-
-[compat]
-julia = "1.1"
