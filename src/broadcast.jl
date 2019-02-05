@@ -35,6 +35,15 @@ function BroadcastStyle(::A, ::NamedArrayStyle{B}) where {A <: AbstractArrayStyl
     NamedArrayStyle(BroadcastStyle(A(), B()))
 end
 
+#=
+design space
+    only named arrays
+        same axes
+            same order
+            different order
+    named arrays and scalars
+    multiplication vs not
+=#
 @inline function Base.copy(bc::Broadcasted{NamedArrayStyle{Style}}) where Style
     # Gather a tuple of all named arrays in this broadcast expression
     As = allnamed(bc)
@@ -45,10 +54,20 @@ end
     noms = names(A)
 
     # Verify that names match along all dimensions of all named arrays.
-    # Use isequal to correctly handle `missing` labels
+    # Use isequal to correctly handle names that are `missing`.
     @argcheck(
         all(isequal(noms[i], names(A′, i)) for A′ in As for i in 1:ndims(A′)),
         "All names must match to broadcast across multiple named arrays."
+    )
+
+    @argcheck(
+        all(arg isa ANA || size(arg) == () for arg in allargs(bc)),
+        "Broadcasting is only supported between associative arrays and scalars."
+    )
+
+    @argcheck(
+        all(op == (*) for op in allops(bc)),
+        "Broadcasting is currently only supported for multiplication."
     )
 
     # Compute the broadcast result on unwrapped arrays,
@@ -73,6 +92,24 @@ allnamed(a::ANA) = (a,)
 allnamed(args::Tuple{}) = ()
 # ::Any -> discard it
 allnamed(a::Any) = ()
+
+# Return a tuple of all arguments; very similar to the above. unify the code?
+allargs(bc::Broadcasted) = allargs(bc.args)
+# ::Tuple -> search it
+@inline allargs(args::Tuple) = (allargs(args[1])..., allargs(tail(args))...)
+# ::Any -> keep it
+allargs(a::Any) = (a,)
+# ::EmptyTuple -> discard it
+allargs(args::Tuple{}) = ()
+
+# Return a tuple of all arguments; very similar to the above. unify the code?
+allops(bc::Broadcasted) = (bc.f, allops(bc.args)...)
+# ::Tuple -> search it
+@inline allops(args::Tuple) = (allops(args[1])..., allops(tail(args))...)
+# ::Any -> discard it
+allops(a::Any) = ()
+# ::EmptyTuple -> discard it
+allops(args::Tuple{}) = ()
 
 # Unwrap all of the named arrays within a Broadcasted expression. Note: `param` is currently unused, but is passed down
 # to the unwrap(A::ANA, param) method in case we want to control the way an array is unwrapped in the future.
