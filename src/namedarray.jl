@@ -23,7 +23,6 @@ function named_getindex(A::NamedArray, I′)
         # scalar indexing
         value
     else
-
         unparameterized(A)(value, getnames(A, I′))
     end
 end
