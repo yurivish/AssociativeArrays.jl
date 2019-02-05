@@ -106,7 +106,7 @@ Base.transpose(A::Assoc2D) = Assoc(transpose(data(A)), names(A)[2], names(A)[1])
 
 const ASA = AbstractSparseArray
 
-function matmul_indices(A, A_i, B, B_i)
+function mul_indices(A, A_i, B, B_i)
     # Is there some sorting-based efficiency gain to be had here?
     da = name_to_index(A, A_i)
     db = name_to_index(B, B_i)
@@ -121,47 +121,80 @@ const SparseAssoc2D = Assoc2D{T, <:ASA} where {T}
 sparse_assoc_t = Union{SparseAssoc2D, SparseAssoc2D{<:Any, <:Union{Transpose, Adjoint}}}
 
 function Base.:*(A::sparse_assoc_t, B::sparse_assoc_t) # sparse
-    ia, ib = matmul_indices(A, 2, B, 1)
+    ia, ib = mul_indices(A, 2, B, 1)
     arr = sparse(data(A))[:, ia] * sparse(data(B))[ib, :]
     Assoc(dropzeros!(arr), names(A, 1), names(B, 2))
 end
 
 function Base.:*(A::Assoc2D, B::Assoc2D) # nonsparse
-    ia, ib = matmul_indices(A, 2, B, 1)
+    ia, ib = mul_indices(A, 2, B, 1)
     arr = data(A)[:, ia] * data(B)[ib, :]
     Assoc(arr, names(A, 1), names(B, 2))
 end
 
-function Base.:+(A::Assoc2D, B::Assoc2D) # todo: sparse/nonsparse
-    na1 = names(A, 1)
-    nb1 = names(B, 1)
-    k1 = collect(na1 ∪ nb1)
+union_names(A, B, dim) = let na = names(A, dim), nb = names(B, dim)
+    na, nb, na ∪ nb
+end
 
-    na2 = names(A, 2)
-    nb2 = names(B, 2)
-    k2 = collect(na2 ∪ nb2)
+intersect_names(A, B, dim) = let na = names(A, dim), nb = names(B, dim)
+    na, nb, na ∩ nb
+end
 
+function elementwise_add_like(A::Assoc2D, B::Assoc2D)
+    na1, nb1, k1 = union_names(A, B, 1)
+    na2, nb2, k2 = union_names(A, B, 2)
     T = promote_type(eltype(A), eltype(B))
+
     C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
+    # todo: views
     C[na1, na2] .+= data(A)
     C[nb1, nb2] .+= data(B)
 
-    data!(dropzeros!, C)
+    compact(C)
 end
 
+function elementwise_mul_like(A::Assoc2D, B::Assoc2D, *)
+  na1, nb1, k1 = intersect_names(A, B, 1)
+  na2, nb2, k2 = intersect_names(A, B, 2)
+  T = promote_type(eltype(A), eltype(B))
 
-# Base.sum(A::Assoc, args...; kws...) =
-#     sum(data(A), args...; kws...) # unparameterized(A)(, names(A))
+  @assert iszero(zero(T) * zero(T)) "*(0, 0) == 0 must hold for multiplication-like operators."
 
-##
+  C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
+  C[k1, k2] .+= A[k1, k2, named=false]
+  C[k1, k2] .*= B[k1, k2, named=false]
 
-function condense(A::SparseAssoc2D)
+  compact(C)
+end
+
+# For us:
+#     + and ⊕ both mean elementwise addition
+#
+Base.:+(A::Assoc2D, B::Assoc2D) = elementwise_add_like(A, B, +) # todo: sparse/nonsparse
+A::Assoc ⊕ B::Assoc = A + B
+#
+#     ⊗ means elementwise multiplication
+#     * means associative array multiplication on associative arrays
+#
+A::Assoc2D ⊗ B::Assoc2D = elementwise_mul_like(A, B, *)
+#
+#     * means elementwise scalar multiplication
+#
+Base.:*(s::Number, A::Assoc2D) = compact(data(x -> s .* x, A))
+Base.:*(A::Assoc2D, s::Number) = compact(data(x -> x .* s, A))
+
+# Give a nice error message to scalar addition
+no_scalar_addition() = error("Scalar addition is forbidden as it would result in a near-infinite associative array.")
+Base.:+(A::Assoc2D, s::Number) = no_scalar_addition()
+Base.:+(s::Number, A::Assoc2D) = no_scalar_addition()
+
+function compact(A::SparseAssoc2D)
     # note: not generic enough to handle non-OneTo axes, e.g. OffsetArrays
     # remove fully zero columns and rows
-    a = dropzeros(data(A))
+    a = data(A)
     I, J, V = findnz(a)
     # @show I J a[I, J]
-    arr = a[unique(I), unique(J)]
+    arr = dropzeros!(a[unique(I), unique(J)])
     Assoc(arr, names(A, 1, axes(arr, 1)), names(A, 2, axes(arr, 2)))
 end
 
@@ -204,9 +237,6 @@ function explode_sparse(t) # ::Vector{NamedTuple{(:row, :col, :val)}}
 end
 
 explode(t) = explode_sparse(sparse_triples(t))
-
-A::Assoc ⊗ B::Assoc = A .* B
-A::Assoc ⊕ B::Assoc = A + B
 
 # Show
 
@@ -271,7 +301,7 @@ function pretty(io::IO, A::Assoc{<:Any, 2})
         pretty_table(io, hcat(row_header, out), col_header, borderless, highlighters=(highlight_row_label,), alignment=:l)
     else
         println(io, col_header[2:end])
-        println(io, "No rows.")
+        println(io, "Empty array.")
     end
 end
 

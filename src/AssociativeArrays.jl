@@ -6,7 +6,7 @@ using Base: tail
 
 export Assoc, Num, Id
 export explode, triples, densify, data
-export mapnz, logical, condense
+export mapnz, logical
 export ⊗, ⊕
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
@@ -46,8 +46,9 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
+    # @show A ax I dim
     @argcheck(
-        !(N > 1 && length(ax) == 1 && length(ax[1]) == length(A)),
+        !(dim == 1 && N > 1 && length(ax) == 1 && length(ax[1]) == length(A)),
         BoundsError("Named linear indexing into an $(N)-d Assoc is not supported.", I)
     )
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
@@ -150,6 +151,7 @@ macro define_named_to_indices(A, T)
 end
 
 # Introduce a simple `Id` name type for named indexing with integers
+# Note: We may want to give everything a UUID so that we can't randomly cross-multiply different tables.
 struct Id{T}
     id::T
 end
