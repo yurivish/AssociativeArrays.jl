@@ -205,6 +205,9 @@ end
 
 explode(t) = explode_sparse(sparse_triples(t))
 
+A::Assoc ⊗ B::Assoc = A .* B
+A::Assoc ⊕ B::Assoc = A + B
+
 # Show
 
 const highlight_row_label = Highlighter(

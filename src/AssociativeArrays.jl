@@ -7,6 +7,7 @@ using Base: tail
 export Assoc, Num, Id
 export explode, triples, densify, data
 export mapnz, logical, condense
+export ⊗, ⊕
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
