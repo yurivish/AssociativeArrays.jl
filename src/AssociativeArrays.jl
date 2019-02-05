@@ -31,8 +31,7 @@ Base.IndexStyle(::Type{<:ANA{<:Any, <:Any, Td}}) where {Td} = IndexStyle(Td)
 Base.getindex(A::ANA, i::Int) = data(A)[i]
 Base.getindex(A::ANA{T, N}, I::Vararg{Int, N}) where {T, N} = data(A)[I...]
 
-Base.setindex!(A::ANA, v, i::Int) = setindex!(data(A), v, i)
-Base.setindex!(A::ANA{T, N}, v, I::Vararg{Int, N}) where {T, N} = setindex!(data(A), v, I...)
+Base.setindex(A::ANA, v, I...) = data(A)[to_index(A, I)] = v
 
 # We cannot know in general whether dimension names are preserved -- even
 # if the similar array is of the same size, names may move around.
@@ -119,6 +118,9 @@ function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
     end
 end
 
+Base.setindex!(A::ANA, v, i::Int) = setindex!(data(A), v, i)
+Base.setindex!(A::ANA{T, N}, v, I::Vararg{Int, N}) where {T, N} = setindex!(data(A), v, I...)
+
 Base.view(A::ANA, I::fast_path_indices...) = view(data(A), I...)
 
 const native_indices = Union{Int, AbstractArray}
@@ -130,6 +132,7 @@ getnames(A::ANA{T, N}, I::Tuple{Vararg{native_indices, M}}) where {T, N, M} =
 Base.names(A::ANA, args...) = names(A, args...)
 
 names(A::ANA, dim) = names(A)[dim]
+names(A::ANA, dim, I) = names(A)[dim][I]
 
 # These methods should be defined by subtypes:
 # names(A)::Tuple
@@ -162,13 +165,25 @@ end
 
 # Operate on the underlying data of an assoc for e.g. scalar broadcasting,
 # which is not defined for an assoc.
-apply(f, A::ANA) = unparameterized(A)(f(data(A)), names(A))
-apply!(f!, A::ANA) = (f!(data(A)); A)
+data(f, A::ANA) = unparameterized(A)(f(data(A)), names(A))
+data!(f!, A::ANA) = (f!(data(A)); A)
 
-densify(A::ANA) = apply(Array, A)
+densify(A::ANA) = data(Array, A)
 
-Base.cumsum(A::ANA, args...; kw...) = apply(x -> cumsum(x, args...; kw...), A)
-Base.cumsum!(A::ANA, args...; kw...) = apply!(x -> cumsum(x, args...; kw...), A)
+Base.cumsum(A::ANA, args...; kw...) = data(x -> cumsum(x, args...; kw...), A)
+Base.cumsum!(A::ANA, args...; kw...) = data!(x -> cumsum(x, args...; kw...), A)
+
+Base.float(A::ANA, args...; kw...) = data(float, A)
+
+function mapnz(f, A::SparseMatrixCSC)
+    I, J, V = findnz(A)
+    sparse(I, J, f.(V))
+end
+
+mapnz(f, A::ANA{<:Any, 2}) = data(a -> dropzeros!(mapnz(f, a)), A)
+
+# relationship to >0? bools are numbers. map(iszero)?
+logical(A::ANA) = mapnz(v -> iszero(v) ? v : one(v), A)
 
 # What to do about names for the dimensions reduced out?
 # function Base.sum(A::Assoc, args...; names, dims, kws...)
