@@ -45,6 +45,9 @@ design space
     multiplication vs not
 =#
 @inline function Base.copy(bc::Broadcasted{NamedArrayStyle{Style}}) where Style
+
+    error("Broadcast is currently undergoing renovations. Supporting it will take a lot of care in implementation.")
+
     # Gather a tuple of all named arrays in this broadcast expression
     As = allnamed(bc)
     A = first(As)
