@@ -47,22 +47,22 @@ design space
 @inline function Base.copy(bc::Broadcasted{NamedArrayStyle{Style}}) where Style
     # Gather a tuple of all named arrays in this broadcast expression
     As = allnamed(bc)
+    A = first(As)
 
-    # Determine the maximal number of dimensions
-    i = argmax(ndims.(As))
-    A = As[i]
-    noms = names(A)
+    # Ensure that all named arrays are of equal dimension.
+    @argcheck(all(==(ndims(A)), ndims.(As)), "Dimensions of all named arrays must be equal.")
 
-    # Verify that names match along all dimensions of all named arrays.
     # Use isequal to correctly handle names that are `missing`.
+    noms = names(A)
     @argcheck(
-        all(isequal(noms[i], names(A′, i)) for A′ in As for i in 1:ndims(A′)),
+        all(isequal(noms, names(As[i])) for i in 2:length(As)),
         "All names must match to broadcast across multiple named arrays."
     )
 
+    # Ensure that names match along all dimensions of all named arrays.
     @argcheck(
         all(arg isa ANA || size(arg) == () for arg in allargs(bc)),
-        "Broadcasting is only supported between associative arrays and scalars."
+        "Broadcasting is only supported between associative arrays and scalars. Argument types: $(typeof.(allargs(bc)))"
     )
 
     @argcheck(
