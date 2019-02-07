@@ -15,6 +15,12 @@ version = "0.1.1"
 [[Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
+[[Compat]]
+deps = ["Base64", "Dates", "DelimitedFiles", "Distributed", "InteractiveUtils", "LibGit2", "Libdl", "LinearAlgebra", "Markdown", "Mmap", "Pkg", "Printf", "REPL", "Random", "Serialization", "SharedArrays", "Sockets", "SparseArrays", "Statistics", "Test", "UUIDs", "Unicode"]
+git-tree-sha1 = "49269e311ffe11ac5b334681d212329002a9832a"
+uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
+version = "1.5.1"
+
 [[Crayons]]
 deps = ["Test"]
 git-tree-sha1 = "3017c662a988bcb8a3f43306a793617c6524d476"
@@ -25,9 +31,19 @@ version = "1.0.0"
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 
+[[DelimitedFiles]]
+deps = ["Mmap"]
+uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+
 [[Distributed]]
 deps = ["Random", "Serialization", "Sockets"]
 uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+
+[[Formatting]]
+deps = ["Compat"]
+git-tree-sha1 = "289003271ce9c8194c1ce56a3c433f1c51841125"
+uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
+version = "0.3.5"
 
 [[Indexing]]
 deps = ["Test"]
@@ -38,6 +54,11 @@ version = "1.1.0"
 [[InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+
+[[IterTools]]
+path = "/Users/yurivish/.julia/dev/IterTools"
+uuid = "c8e1da08-722c-5040-9ed9-7db0dc04731e"
+version = "1.1.1"
 
 [[IteratorInterfaceExtensions]]
 deps = ["Test"]
@@ -62,6 +83,9 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 
+[[Mmap]]
+uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+
 [[OrderedCollections]]
 deps = ["Random", "Serialization", "Test"]
 git-tree-sha1 = "85619a3f3e17bb4761fe1b1fd47f0e979f964d5b"
@@ -79,12 +103,10 @@ deps = ["Dates", "LibGit2", "Markdown", "Printf", "REPL", "Random", "SHA", "UUID
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 
 [[PrettyTables]]
-deps = ["Crayons", "Parameters", "Printf", "Reexport", "Tables"]
-git-tree-sha1 = "08b24cadc14718b22101880793e3662436a8e886"
-repo-rev = "master"
-repo-url = "https://github.com/ronisbr/PrettyTables.jl"
-uuid = "bf2635c2-15c2-11e9-0b27-5fb50ccc2906"
-version = "0.2.1"
+deps = ["Crayons", "Formatting", "Parameters", "Reexport", "Tables", "Test"]
+git-tree-sha1 = "921dd73d03431b430cc89a47b6655225feb77c95"
+uuid = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
+version = "0.3.0"
 
 [[Printf]]
 deps = ["Unicode"]
@@ -127,6 +149,10 @@ uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 
 [[Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+
+[[SharedArrays]]
+deps = ["Distributed", "Mmap", "Random", "Serialization"]
+uuid = "1a1011a3-84de-559e-8e89-a11a2f7dc383"
 
 [[Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
