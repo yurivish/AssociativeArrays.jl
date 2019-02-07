@@ -81,4 +81,16 @@ using Serialization
 dogs = deserialize("2012.ser")
 dogs[[:name => "bailey", :name => "pugsley"]]
 
+---
+
+bug in Julia base:
+a[[true, false], [false, true], named=true] # => ​
+getindex not defined for Base.LogicalIndex{Int64,Array{Bool,1}}
+
+---
+
+another one?
+nzrange(sparse(rand(2,2)), 2) # Bug? Returned range is out of bounds.
+
 =#
+

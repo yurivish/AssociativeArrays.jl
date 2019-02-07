@@ -1,13 +1,20 @@
 module AssociativeArrays
 
 using ArgCheck, Base.Iterators, LinearAlgebra, SparseArrays, SplitApplyCombine,
-      OrderedCollections, PrettyTables
+      OrderedCollections, PrettyTables, IterTools
 using Base: tail
 
 export Assoc, Num, Id
-export explode, triples, densify, data
+export explode, triples, rowtriples, densify, data
 export mapnz, logical
 export ⊗, ⊕
+export elementwise_mul_like, elementwise_add_like
+
+# might not want to be exported by default
+# export <, > # in fact it is ambiguous with base by default
+
+# tools; eventually move to another package
+export div_zero#, smooth
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
@@ -46,11 +53,14 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
-    # @show A ax I dim
-    @argcheck(
-        !(dim == 1 && N > 1 && length(ax) == 1 && length(ax[1]) == length(A)),
-        BoundsError("Named linear indexing into an $(N)-d Assoc is not supported.", I)
-    )
+    # @show ax I dim
+    if length(ax) == 1
+        @argcheck(
+            length(ax[1]) != prod(size(A)),
+            BoundsError("Named linear indexing into an $(N)-d Assoc is not supported.", I)
+        )
+    end
+
     to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
 end
 
@@ -168,13 +178,27 @@ end
 
 # Operate on the underlying data of an assoc for e.g. scalar broadcasting,
 # which is not defined for an assoc.
-data(f, A::ANA) = unparameterized(A)(f(data(A)), names(A))
-data!(f!, A::ANA) = (f!(data(A)); A)
+data(f, A::ANA) = condense(unparameterized(A)(f(data(A)), names(A)))
+# data!(f!, A::ANA) = (f!(data(A)); A)
+#=
+
+
+todo:
+    1. how can we assert that that names for this style of functions align
+    2. how do we avoid creating too many intermediate assocs?
+
+smoothed = data(filtered) do o
+    data(expected) do e
+        smooth.(o, e, 1, 50)
+    end
+end
+
+
+=#
 
 densify(A::ANA) = data(Array, A)
 
 Base.cumsum(A::ANA, args...; kw...) = data(x -> cumsum(x, args...; kw...), A)
-Base.cumsum!(A::ANA, args...; kw...) = data!(x -> cumsum(x, args...; kw...), A)
 
 Base.float(A::ANA, args...; kw...) = data(float, A)
 
@@ -186,7 +210,7 @@ end
 mapnz(f, A::ANA{<:Any, 2}) = data(a -> dropzeros!(mapnz(f, a)), A)
 
 # relationship to >0? bools are numbers. map(iszero)?
-logical(A::ANA) = mapnz(v -> iszero(v) ? v : one(v), A)
+logical(A::ANA, α=1) = mapnz(v -> iszero(v) ? v : α*one(v), A)
 
 # What to do about names for the dimensions reduced out?
 # function Base.sum(A::Assoc, args...; names, dims, kws...)
@@ -194,6 +218,15 @@ logical(A::ANA) = mapnz(v -> iszero(v) ? v : one(v), A)
 #     # Assoc(res, Tuple(dims) # names.(Ref(A), size(res))
 #     # NOTE: Dims might be e.g :
 # end
+
+# Delegate sum to the underlying array for performance.
+# Without this, sum(sparse assoc) => sparse, which is slow.
+# todo: figure out the general way to write a specific signature that matches all sum calls
+Base.sum(f, A::ANA; dims) = sum(f, data(A); dims=dims)
+Base.sum(A::ANA; dims) = sum(data(A); dims=dims)
+
+Base.sum(f, A::ANA) = sum(f, data(A))
+Base.sum(A::ANA) = sum(data(A))
 
 ##
 

@@ -140,31 +140,42 @@ intersect_names(A, B, dim) = let na = names(A, dim), nb = names(B, dim)
     na, nb, na ∩ nb
 end
 
-function elementwise_add_like(A::Assoc2D, B::Assoc2D)
+function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
+    T = promote_type(eltype(A), eltype(B))
+    @assert iszero(zero(T) + zero(T)) "+(0, 0) == 0 must hold for addition-like operators."
+    @assert isone(zero(T) + one(T)) "+(0, 1) == 1 must hold for addition-like operators."
+    @assert isone(one(T) + zero(T)) "+(1, 0) == 1 must hold for addition-like operators."
+
     na1, nb1, k1 = union_names(A, B, 1)
     na2, nb2, k2 = union_names(A, B, 2)
-    T = promote_type(eltype(A), eltype(B))
 
     C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
     # todo: views
     C[na1, na2] .+= data(A)
     C[nb1, nb2] .+= data(B)
 
-    compact(C)
+    condense(C)
 end
 
 function elementwise_mul_like(A::Assoc2D, B::Assoc2D, *)
-  na1, nb1, k1 = intersect_names(A, B, 1)
-  na2, nb2, k2 = intersect_names(A, B, 2)
-  T = promote_type(eltype(A), eltype(B))
+    z = zero(eltype(A)) * zero(eltype(B)) # Infer element type by doing a zero-zero test for now.
+    T = typeof(z) # promote_type(eltype(A), eltype(B))
+    @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
+    # Note: These fail for eg. 1/0 --> Inf.
+    # @assert iszero(zero(T) * one(T)) "*(0, 1) == 0 must hold for multiplication-like operators."
+    # @assert iszero(one(T) * zero(T)) "*(1, 0) == 0 must hold for multiplication-like operators."
 
-  @assert iszero(zero(T) * zero(T)) "*(0, 0) == 0 must hold for multiplication-like operators."
+    na1, nb1, k1 = intersect_names(A, B, 1)
+    na2, nb2, k2 = intersect_names(A, B, 2)
 
-  C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
-  C[k1, k2] .+= A[k1, k2, named=false]
-  C[k1, k2] .*= B[k1, k2, named=false]
+    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
+    if prod(size(C)) > 0 # check for the case of an empty result
+        # without the check above, these fail for mysterious indexing error reasons...
+        C[k1, k2] .+= A[k1, k2, named=false]
+        C[k1, k2] .*= B[k1, k2, named=false]
+    end
 
-  compact(C)
+    condense(C)
 end
 
 # For us:
@@ -180,29 +191,91 @@ A::Assoc2D ⊗ B::Assoc2D = elementwise_mul_like(A, B, *)
 #
 #     * means elementwise scalar multiplication
 #
-Base.:*(s::Number, A::Assoc2D) = compact(data(x -> s .* x, A))
-Base.:*(A::Assoc2D, s::Number) = compact(data(x -> x .* s, A))
+Base.:*(s::Number, A::Assoc2D) = condense(data(x -> s .* x, A))
+Base.:*(A::Assoc2D, s::Number) = condense(data(x -> x .* s, A))
 
 # Give a nice error message to scalar addition
 no_scalar_addition() = error("Scalar addition is forbidden as it would result in a near-infinite associative array.")
 Base.:+(A::Assoc2D, s::Number) = no_scalar_addition()
 Base.:+(s::Number, A::Assoc2D) = no_scalar_addition()
 
-function compact(A::SparseAssoc2D)
+# todo: how are chained a < b < c comparisons parsed/evaluated?
+# todo: <=, >=
+
+>(x, y) = Base.:>(x, y)
+>(A::Assoc, s::Number) = data(a -> a .* (a .> s), A)
+>(s::Number, A::Assoc) = data(a -> a .* (s .> a), A)
+
+<(x, y) = Base.:<(x, y)
+<(A::Assoc, s::Number) = data(a -> a .* (a .< s), A)
+<(s::Number, A::Assoc) = data(a -> a .* (s .< a), A)
+
+Base.:/(A::Assoc, s::Number) = data(a -> a ./ s, A)
+
+## Utils.
+
+# sparse-zero-preserving divide. Yes, I am having fun with Unicode.
+div_zero(x, y) = iszero(x) && iszero(y) ? zero(x/y) : x/y
+
+# function smooth(a, b, d, α)
+#     x = a + logical(a, α*d)
+#     y = b + logical(b, α)
+#     elementwise_mul_like(x, y, div_zero)
+# end
+
+export threshold
+function threshold(A::Assoc, cutoff) # cutoff is inclusive
+    # compute marginals
+    m1 = sum(A, dims=2)
+    m2 = sum(A, dims=1)
+    # index into the filtered subset
+    A[vec(m1 .>= cutoff), vec(m2 .>= cutoff), named=true]
+end
+
+# todo: add a named/assoc argument; that way you can use sortperm from one array to index into another
+function Base.sortperm(A::Assoc2D; dims, by=sum, rev=false)
+    # using the `by` keyword is slower; does it reapply the function each time?
+    names(A, dims)[sortperm(by.(eachslice(data(A); dims=dims)), rev=rev, alg=Base.Sort.DEFAULT_STABLE)]
+end
+
+function Base.sort(A::Assoc2D; dims, by=sum, rev=false)
+    I = sortperm(A; dims=dims, by=by, rev=rev, alg=Base.Sort.DEFAULT_STABLE)
+    if dims == 1
+        Assoc(data(A)[I, :], names(A, 1)[I], names(A, 2))
+    else @assert dims == 2
+        Assoc(data(A)[:, I], names(A, 1), names(A, 2)[I])
+    end
+end
+
+## /utils
+
+# note: these are both inefficient. and possibly incorrect.
+
+function condense(A::SparseAssoc2D)
     # note: not generic enough to handle non-OneTo axes, e.g. OffsetArrays
     # remove fully zero columns and rows
     a = data(A)
     I, J, V = findnz(a)
     # @show I J a[I, J]
-    arr = dropzeros!(a[unique(I), unique(J)])
-    Assoc(arr, names(A, 1, axes(arr, 1)), names(A, 2, axes(arr, 2)))
+    uI = sort(unique(I))
+    uJ = sort(unique(J))
+
+    # arr = dropzeros!(a[uI, uJ])
+    # Assoc(arr, names(A, 1, uI), names(A, 2, uJ))
+    A[uI, uJ, named=true]
+end
+
+function condense(A::Assoc2D)
+    nonzerows = findall(row -> !all(iszero, row), collect(eachrow(data(A))))
+    nonzecols = findall(col -> !all(iszero, col), collect(eachcol(data(A))))
+    A[nonzerows, nonzecols, named=true]
 end
 
 function triples(A::Assoc2D{<:Any, <:AbstractSparseMatrix})
     # [(row, col, val), ...]
     rownames, colnames = names(A)
     [
-        (row=rownames[i], col=colnames[j], i=i, j=j, val=val)
+        (row=rownames[i], col=colnames[j], val=val)
         for (i, j, val) in zip(findnz(data(A))...)
         if !iszero(val)
     ]
@@ -215,6 +288,16 @@ function triples(A::Assoc2D)
         for I in CartesianIndices(data(A))
     ])
 end
+
+function rowtriples(A::Assoc2D)
+    (I, J, V) = findnz(data(A))
+    groupby(
+        first,
+        [collect(zip(I, J, V))][sortperm(I)]
+    )
+end
+
+
 
 function sparse_triples(t) # note: currently matches assocs of nonsparse
     mapmany(enumerate(t)) do (i, row)
@@ -311,3 +394,8 @@ Base.show(io::IO, ::MIME"text/plain", A::Assoc{<:Any, 1}) = pretty(io, A)
 Base.show(io::IO, A::Assoc{<:Any, 2}) = pretty(io, A)
 Base.show(io::IO, ::MIME"text/plain", A::Assoc{<:Any, 2}) = pretty(io, A)
 
+
+## hack around a[[true, false], [false, true], named=true] otherwise not working
+
+# Base.getindex(A::AbstractArray, I1::Base.LogicalIndex, I2::Base.LogicalIndex) = A[collect(I1), collecT(I2)]
+Base.getindex(A::SparseMatrixCSC, I1::Base.LogicalIndex, I2::Base.LogicalIndex) = A[collect(I1), collect(I2)]
