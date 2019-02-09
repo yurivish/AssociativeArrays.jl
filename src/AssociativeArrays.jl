@@ -5,7 +5,7 @@ using ArgCheck, Base.Iterators, LinearAlgebra, SparseArrays, SplitApplyCombine,
 using Base: tail
 
 export Assoc, Num, Id
-export explode, triples, rowtriples, densify, data
+export explode, triples, rowtriples, densify, sparsify, data
 export mapnz, logical
 export ⊗, ⊕
 export elementwise_mul_like, elementwise_add_like
@@ -197,6 +197,7 @@ end
 =#
 
 densify(A::ANA) = data(Array, A)
+sparsify(A::ANA) = data(sparse, A)
 
 Base.cumsum(A::ANA, args...; kw...) = data(x -> cumsum(x, args...; kw...), A)
 
