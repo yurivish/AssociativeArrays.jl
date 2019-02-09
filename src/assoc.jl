@@ -153,8 +153,13 @@ function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
 
     C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
     # todo: views
-    C[na1, na2] .+= data(A)
-    C[nb1, nb2] .+= data(B)
+
+    if !isempty(na1) || !isempty(na2)
+        C[na1, na2] .+= data(A)
+    end
+    if !isempty(nb1) || !isempty(nb2)
+        C[nb1, nb2] .+= data(B)
+    end
 
     condense(C)
 end
