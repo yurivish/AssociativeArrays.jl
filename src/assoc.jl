@@ -231,12 +231,21 @@ div_zero(x, y) = iszero(x) && iszero(y) ? zero(x/y) : x/y
 # end
 
 export threshold
-function threshold(A::Assoc, cutoff) # cutoff is inclusive
+function threshold(A::Assoc, cutoff)
+    # todo: I think this is weird; run the 3x3 example to see why.
+    # 1 4 7; 2 5 8; 3 6 9
+    # What if we did it this way instead (remove anything without a value of at least x in some cell)
+    # observed ⊗ logical(observed > 2)
+    # what his is doing also makes sense, i think -- just might want different cutoffs for each axis
+
+    # remove rows and columns whose total is less than the cutoff
     # compute marginals
     m1 = sum(A, dims=2)
     m2 = sum(A, dims=1)
+    # @show m1 m2
     # index into the filtered subset
-    A[vec(m1 .>= cutoff), vec(m2 .>= cutoff), named=true]
+    # cutoff is inclusive
+    condense(A[vec(m1 .>= cutoff), vec(m2 .>= cutoff), named=true])
 end
 
 # todo: add a named/assoc argument; that way you can use sortperm from one array to index into another
@@ -258,24 +267,29 @@ end
 
 # note: these are both inefficient. and possibly incorrect.
 
+# todo: define condense for regular dense and sparse arrays, so we can reduce the number of
+# intermediate assocs being created [note: incoherent thought; you need to know which names to drop too]
+# [but maybe we can make a "find the uI and uJ" function]
+
+function condense_indices(a::AbstractSparseMatrix)
+    I, J, V = findnz(a)
+    uI = sort(unique(I))
+    uJ = sort(unique(J))
+    uI, uJ
+end
+
 function condense(A::SparseAssoc2D)
     # note: not generic enough to handle non-OneTo axes, e.g. OffsetArrays
     # remove fully zero columns and rows
     a = data(A)
-    I, J, V = findnz(a)
-    # @show I J a[I, J]
-    uI = sort(unique(I))
-    uJ = sort(unique(J))
-
-    # arr = dropzeros!(a[uI, uJ])
-    # Assoc(arr, names(A, 1, uI), names(A, 2, uJ))
-    A[uI, uJ, named=true]
+    I, J = condense_indices(a)
+    A[I, J, named=true]
 end
 
 function condense(A::Assoc2D)
-    nonzerows = findall(row -> !all(iszero, row), collect(eachrow(data(A))))
-    nonzecols = findall(col -> !all(iszero, col), collect(eachcol(data(A))))
-    A[nonzerows, nonzecols, named=true]
+    I = findall(!iszero, vec(sum(data(A), dims=2)))
+    J = findall(!iszero, vec(sum(data(A), dims=1)))
+    A[I, J, named=true]
 end
 
 function triples(A::Assoc2D{<:Any, <:AbstractSparseMatrix})
