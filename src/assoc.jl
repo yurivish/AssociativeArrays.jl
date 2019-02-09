@@ -308,7 +308,7 @@ end
 
 function sparse_triples(t) # note: currently matches assocs of nonsparse
     mapmany(enumerate(t)) do (i, row)
-        ((row=Id(i), col=typeof(v) <: Number ? k : Pair(k, v), val=typeof(v) <: Number ? v : 1) for (k, v) in pairs(row))
+        ((row=Id(i), col=#= typeof(v) <: Number ? k : =# Pair(k, v), val=typeof(v) <: Number ? v : 1) for (k, v) in pairs(row))
     end
 end
 
