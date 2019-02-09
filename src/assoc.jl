@@ -140,6 +140,8 @@ intersect_names(A, B, dim) = let na = names(A, dim), nb = names(B, dim)
     na, nb, na ∩ nb
 end
 
+# +ₛ(A::Assoc2D, B::Assoc2D) = elementwise_add_like(A, B, ∪) # problem = zero. zero in this ring is the empty set...
+
 function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
     T = promote_type(eltype(A), eltype(B))
     @assert iszero(zero(T) + zero(T)) "+(0, 0) == 0 must hold for addition-like operators."
