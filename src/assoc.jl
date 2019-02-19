@@ -94,7 +94,7 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
             value
         end,
         getnames(A, I′′)
-    )
+    ) |> condense # todo: efficiency
 end
 
 const Assoc1D = Assoc{T, 1, Td} where {T, Td}
@@ -123,13 +123,13 @@ sparse_assoc_t = Union{SparseAssoc2D, SparseAssoc2D{<:Any, <:Union{Transpose, Ad
 function Base.:*(A::sparse_assoc_t, B::sparse_assoc_t) # sparse
     ia, ib = mul_indices(A, 2, B, 1)
     arr = sparse(data(A))[:, ia] * sparse(data(B))[ib, :]
-    Assoc(dropzeros!(arr), names(A, 1), names(B, 2))
+    condense(Assoc(dropzeros!(arr), names(A, 1), names(B, 2)))
 end
 
 function Base.:*(A::Assoc2D, B::Assoc2D) # nonsparse
     ia, ib = mul_indices(A, 2, B, 1)
     arr = data(A)[:, ia] * data(B)[ib, :]
-    Assoc(arr, names(A, 1), names(B, 2))
+    condense(Assoc(arr, names(A, 1), names(B, 2)))
 end
 
 union_names(A, B, dim) = let na = names(A, dim), nb = names(B, dim)
@@ -153,12 +153,19 @@ function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
 
     C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
     # todo: views
-
+    @show size(k1) size(k2)
     if !isempty(na1) || !isempty(na2)
-        C[na1, na2] .+= data(A)
+        @show size(na1) size(na2) size(C[na1, na2])
+        # C[na1, na2, named=false] .+= data(A)
+        let inds = to_indices(C, (na1, na2))
+            data(C)[inds...] .+= data(A)
+        end
     end
     if !isempty(nb1) || !isempty(nb2)
-        C[nb1, nb2] .+= data(B)
+        # C[nb1, nb2, named=false] .+= data(B)
+        let inds = to_indices(C, (nb1, nb2))
+            data(C)[inds...] .+= data(B)
+        end
     end
 
     condense(C)
@@ -245,21 +252,21 @@ function threshold(A::Assoc, cutoff)
     # @show m1 m2
     # index into the filtered subset
     # cutoff is inclusive
-    condense(A[vec(m1 .>= cutoff), vec(m2 .>= cutoff), named=true])
+    A[vec(m1 .>= cutoff), vec(m2 .>= cutoff), named=true]
 end
 
 # todo: add a named/assoc argument; that way you can use sortperm from one array to index into another
-function Base.sortperm(A::Assoc2D; dims, by=sum, rev=false)
+function Base.sortperm(A::Assoc2D; dims, by=sum, rev=false, alg=Base.Sort.DEFAULT_STABLE)
     # using the `by` keyword is slower; does it reapply the function each time?
-    names(A, dims)[sortperm(by.(eachslice(data(A); dims=dims)), rev=rev, alg=Base.Sort.DEFAULT_STABLE)]
+    names(A, dims)[sortperm(by.(eachslice(data(A); dims=dims)), rev=rev, alg=alg)]
 end
 
-function Base.sort(A::Assoc2D; dims, by=sum, rev=false)
-    I = sortperm(A; dims=dims, by=by, rev=rev, alg=Base.Sort.DEFAULT_STABLE)
+function Base.sort(A::Assoc2D; dims, by=sum, rev=false, alg=Base.Sort.DEFAULT_STABLE)
+    I = sortperm(A; dims=dims, by=by, rev=rev, alg=alg)
     if dims == 1
-        Assoc(data(A)[I, :], names(A, 1)[I], names(A, 2))
+        A[I, :]
     else @assert dims == 2
-        Assoc(data(A)[:, I], names(A, 1), names(A, 2)[I])
+        A[:, I]
     end
 end
 
@@ -283,13 +290,13 @@ function condense(A::SparseAssoc2D)
     # remove fully zero columns and rows
     a = data(A)
     I, J = condense_indices(a)
-    A[I, J, named=true]
+    unparameterized(A)(A[I, J], names(A, 1, I), names(A, 2, J))
 end
 
 function condense(A::Assoc2D)
     I = findall(!iszero, vec(sum(data(A), dims=2)))
     J = findall(!iszero, vec(sum(data(A), dims=1)))
-    A[I, J, named=true]
+    unparameterized(A)(A[I, J], names(A, 1, I), names(A, 2, J))
 end
 
 function triples(A::Assoc2D{<:Any, <:AbstractSparseMatrix})
@@ -322,21 +329,21 @@ end
 
 function sparse_triples(t) # note: currently matches assocs of nonsparse
     mapmany(enumerate(t)) do (i, row)
-        ((row=Id(i), col=#= typeof(v) <: Number ? k : =# Pair(k, v), val=typeof(v) <: Number ? v : 1) for (k, v) in pairs(row))
+        ((row=Id(i), col=typeof(v) <: Number ? k => true : Pair(k, v), val= typeof(v) <: Number ? v : 1) for (k, v) in pairs(row))
     end
 end
 
-lookup(arr) = Dict(arr .=> LinearIndices(arr))
+lookup(arr) = Dict(zip(arr, LinearIndices(arr)))
 
 function explode_sparse(t) # ::Vector{NamedTuple{(:row, :col, :val)}}
-    rk = identity.(OrderedSet(x.row for x in t))
-    ck = identity.(OrderedSet(x.col for x in t))
-    eltype(rk) <: Pair && sort!(rk, by=first, alg=Base.Sort.DEFAULT_STABLE)
-    eltype(ck) <: Pair && sort!(ck, by=first, alg=Base.Sort.DEFAULT_STABLE)
-    rl, cl = lookup(rk), lookup(ck)
-    I = [rl[x.row] for x in t]
-    J = [cl[x.col] for x in t]
-    K = [x.val for x in t]
+    @time rk = identity.(OrderedSet(x.row for x in t))
+    @time ck = identity.(OrderedSet(x.col for x in t))
+    @time eltype(rk) <: Pair && sort!(rk, by=first, alg=Base.Sort.DEFAULT_STABLE)
+    @time eltype(ck) <: Pair && sort!(ck, by=first, alg=Base.Sort.DEFAULT_STABLE)
+    @time rl, cl = lookup(rk), lookup(ck)
+    @time I = [rl[x.row] for x in t]
+    @time J = [cl[x.col] for x in t]
+    @time K = [x.val for x in t]
     Assoc(sparse(I, J, K, length(rk), length(ck)), rk, ck)
 end
 
@@ -364,7 +371,7 @@ function pretty(io::IO, A::Assoc{<:Any, 2})
 
     # half-width and half-height
     w = 4
-    h = 5
+    h = 10
 
     sz = size(arr)
 

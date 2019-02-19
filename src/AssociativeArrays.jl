@@ -237,5 +237,7 @@ include("namedarray.jl")
 include("assoc.jl")
 include("num.jl")
 
+include("tools.jl")
+
 end # module
 
