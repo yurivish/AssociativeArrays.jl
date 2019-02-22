@@ -1,8 +1,7 @@
 module AssociativeArrays
 
-# Note: We don't currently use any of SparseArrays.
 using SparseArrays, Transducers, SplitApplyCombine, Base.Iterators, ArgCheck
-export Assoc, NamedAxis
+export Assoc, NamedAxis, condense
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
@@ -33,7 +32,7 @@ Base.similar(A::ANA, ::Type{S}) where {S} = similar(data(A), S)
 Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims)
 
 # Generic named array convenience constructor for eg. Assoc(data, names_1, names_2, ...)
-(::Type{Ta})(data::AbstractArray{T, N}, names::Vararg{AbstractArray, N}) where {Ta <: ANA, T, N} = Ta(data, names)
+(::Type{Ta})(data::AbstractArray{T, N}, names::Vararg{AbstractVector, N}) where {Ta <: ANA, T, N} = Ta(data, names)
 
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
@@ -49,17 +48,14 @@ end
 function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
     nd = ndims.(I′)
 
-    # Function for basic argument validation during a named indexing operation.
-    # Intended to be called from within user-defined named_getindex methods.
-    # (I′ is our convention for "lowered" basic index values)
     @argcheck(
         all(x -> x == 0 || x == 1, nd),
-        BoundsError("Multidimensional indexing within a single dimension is not currently supported.", I′)
+        BoundsError("Multidimensional indexing within a single dimension is not supported.", I′)
     )
 
     @argcheck(
         all(i <= N || n == 0 for (i, n) in enumerate(nd)),
-        BoundsError("Trailing indices may not introduce new dimensions because it is not clear what the new names would be.", I′)
+        BoundsError("Trailing indices may not introduce new dimensions; it is not clear what the new names would be.", I′)
     )
 
     data(A)[I′...]
@@ -96,15 +92,21 @@ include("namedaxis.jl")
 struct Assoc{T, N, Td} <: AbstractNamedArray{T, N, Td}
     data::Td
     axes::NTuple{N, NamedAxis}
-    function Assoc(data::AbstractArray{T, N}, names::Tuple{Vararg{AbstractVector, N}}) where {T, N}
-        # todo: make these more efficient and non-materializing
-        @argcheck all(allunique.(names)) "Names must be unique within each dimension."
-        @argcheck ndims(data) == length(names) "Each data dimension must be named."
-        @argcheck all(size(data) .== length.(names)) "Data and name dimensions must be equal: $(size(data)) $(length.(names))."
-        @argcheck all(axes(data) .== axes.(names, 1)) "Names must have the same axis as the corresponding data axis."
-        @argcheck !any(T <: Union{Int, AbstractArray, Symbol} for T in eltype.(names)) "Names cannot be of type Int, AbstractArray, or Symbol."
-        new{T, N, typeof(data)}(data, NamedAxis.(names))
+
+    # Tuple{} for ambiguity resolution with the constructor accepting a tuple of `AbstractVector`s
+    function Assoc(data::AbstractArray{T, N}, axes::Union{Tuple{}, NTuple{N, NamedAxis}}) where {T, N}
+        new{T, N, typeof(data)}(data, axes)
     end
+end
+
+function Assoc(data::AbstractArray{T, N}, names::NTuple{N, AbstractVector}) where {T, N}
+    # todo: make these more efficient and non-materializing
+    @argcheck all(allunique.(names)) "Names must be unique within each dimension."
+    @argcheck ndims(data) == length(names) "Each data dimension must be named."
+    @argcheck all(size(data) .== length.(names)) "Data and name dimensions must be equal: $(size(data)) $(length.(names))."
+    @argcheck all(axes(data) .== axes.(names, 1)) "Names must have the same axis as the corresponding data axis."
+    @argcheck !any(T <: Union{Int, AbstractArray, Symbol} for T in eltype.(names)) "Names cannot be of type Symbol, Int, or AbstractArray."
+    Assoc(data, NamedAxis.(names))
 end
 
 data(A::Assoc) = A.data
@@ -118,7 +120,7 @@ macro define_named_to_indices(A, T)
 end
 
 # Allow Symbol here since indexing with one is allowed, it is just not allowed to be a name.
-const assoc_name_types = Union{String, Char, Symbol, Pair}
+const assoc_name_types = Union{String, Char, Symbol, Pair, NamedAxis}
 @define_named_to_indices Assoc assoc_name_types
 
 # Count Symbols as a name type so that they pass through to named_getindex
@@ -130,20 +132,35 @@ name_to_index(A::Assoc, dim, I) = let axis = A.axes[dim]
     isnamedindex(axis, I) ? toindices(axis, I) : []
 end
 name_to_index(A::Assoc, dim, I::AbstractArray) = toindices(A.axes[dim], I)
+name_to_index(A::Assoc, dim, I::NamedAxis) = name_to_index(A, dim, names(I))
 
+# turn a 0d array into a 1d array
+descalarize(x::AbstractArray{<:Any, 0}) = reshape(x, length(x))
+# keep 1+d arrays for downstream error checking
 descalarize(x::AbstractArray) = x
+# turn a scalar into a 1d array
 descalarize(x) = [x]
+
+# turn a scalar into 0d array
+descalarize_0d(x::Int) = fill(x)
+# keep everything else for downstream error checking
+descalarize_0d(x) = x
 
 function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
     # Lift scalar indices to arrays so that the result of indexing matches
     # the dimensionality of A. We iterate rather than broadcast to avoid
     # descalarizing trailing dimensions.
     len = length(I′)
-    I′′ = if len == N
-        descalarize.(I′)
-    elseif len > N
-        # More indices than dimensions; only lift those <= N
-        ntuple(dim -> dim > N ? I′[dim] : descalarize(I′[dim]), length(I′))
+    I′′ = if len == N == 0
+        # Ensure a zero-dimensional result from default_named_getindex.
+        # (See comment in the branch below)
+        tuple(fill(1))
+    elseif len >= N
+        # More indices than dimensions;
+        # - lift those <= N to 1d and make trailing indices 0d. This accounts for corner cases
+        # with zero-dimensional indexing, ensuring that default_named_getindex returns an array:
+        # compare `fill(1)[1]` and fill(1)[fill(1)].
+        ntuple(dim -> (dim > N ? descalarize_0d : descalarize)(I′[dim]), length(I′))
     else @assert len < N
         # More dimensions than indices; pad to N with singleton arrays.
         singleton = [1]
@@ -160,28 +177,19 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
     end
 
     @assert length(I′′) >= N "There should be at least as many (nonscalar) indices as array dimensions"
-    value = let value = default_named_getindex(A, I′′)
-        # Handle zero-dimensional array indexing:
-        # Some zero-dimensional indexing behaviors result in a scalar when an array is expected.
-        # Ensure that the value is always an array.
-        if N == 0
-            value isa AbstractArray ? value : fill!(similar(Td), value)
-        else
-            value
-        end
-    end
+
+    value = default_named_getindex(A, I′′)
 
     I_condensed = condense_indices(value)
     samesize = all(==(:), I_condensed)
-
     condensed_value = samesize ? value : value[I_condensed...]
     unparameterized(A)(
         condensed_value,
-        ntuple(i -> A.axes[i].names[samesize ? I′′[i] : I′′[i][I_condensed[i]]], ndims(condensed_value))
+        ntuple(dim -> names(A.axes[dim], I_condensed[dim] == (:) ? I′′[dim] : I′′[dim][I_condensed[dim]]), N)
     )
 end
 
-# 0d
+# 0-d
 function condense_indices(a::AbstractArray{<:Any, 0})
     I = findall(!iszero, a)
     @assert length(I) <= 1
@@ -190,7 +198,7 @@ function condense_indices(a::AbstractArray{<:Any, 0})
     (isempty(I) ? I : fill(first(I)),)
 end
 
-# nd
+# n-d
 function condense_indices(a::AbstractArray{<:Any, N}) where N
     I = findall(!iszero, a)
     ntuple(
@@ -201,27 +209,54 @@ function condense_indices(a::AbstractArray{<:Any, N}) where N
     )
 end
 
-#=
-function elementwise_mul_like(A::Assoc2D, B::Assoc2D, *)
+# We're always watching out for colons (:) in `condense` because
+# they represent opportunities to reuse existing arrays.
+function condense(a::AbstractArray)
+    I = condense_indices(a)
+    all(==(:), I) ? a : a[I]
+end
+
+function condense(A::Assoc)
+    a = data(A)
+    I = condense_indices(a)
+    all(==(:), I) && return A
+    unparameterized(A)(
+        a[I...],
+        ntuple(
+            dim -> I[dim] == (:) ? names(A.axes[dim]) : names(A.axes[dim], I[dim]),
+            ndims(A)
+        )
+    )
+end
+
+function elementwise_mul(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, * = *) where N
     z = zero(eltype(A)) * zero(eltype(B)) # Infer element type by doing a zero-zero test for now.
     T = typeof(z) # promote_type(eltype(A), eltype(B))
     @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
-    # Note: These fail for eg. 1/0 --> Inf.
-    # @assert iszero(zero(T) * one(T)) "*(0, 1) == 0 must hold for multiplication-like operators."
-    # @assert iszero(one(T) * zero(T)) "*(1, 0) == 0 must hold for multiplication-like operators."
 
-    na1, nb1, k1 = intersect_names(A, B, 1)
-    na2, nb2, k2 = intersect_names(A, B, 2)
-
-    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
-    if prod(size(C)) > 0 # check for the case of an empty result
-        # without the check above, these fail for mysterious indexing error reasons...
-        C[k1, k2] .+= A[k1, k2, named=false]
-        C[k1, k2] .*= B[k1, k2, named=false]
-    end
-
-    condense(C)
+    axs = map(intersect, A.axes, B.axes)
+    value = A[axs..., named=false] .* B[axs..., named=false]
+    condense(Assoc(value, axs))
 end
+
+function elementwise_add(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, + = +) where N
+    T = promote_type(eltype(A), eltype(B))
+    @assert iszero(zero(T) + zero(T)) "+(0, 0) == 0 must hold for addition-like operators."
+    @assert isone(zero(T) + one(T)) "+(0, 1) == 1 must hold for addition-like operators."
+    @assert isone(one(T) + zero(T)) "+(1, 0) == 1 must hold for addition-like operators."
+
+    axs = map(union, A.axes, B.axes)
+    z = issparse(data(A)) || issparse(data(B)) ? spzeros : zeros
+    C = Assoc(z(T, length.(axs)), axs)
+
+    # dotview does not accept keyword arguments so we can't do C[A.axes..., named=false]
+    I_a, I_b = to_indices(C, A.axes), to_indices(C, B.axes)
+    data(C)[I_a...] .+= data(A)
+    data(C)[I_b...] .+= data(B)
+    C
+end
+
+#=
 
 function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
     T = promote_type(eltype(A), eltype(B))
@@ -251,6 +286,28 @@ function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
 
     condense(C)
 end
+
+function elementwise_mul_like(A::Assoc2D, B::Assoc2D, *)
+    z = zero(eltype(A)) * zero(eltype(B)) # Infer element type by doing a zero-zero test for now.
+    T = typeof(z) # promote_type(eltype(A), eltype(B))
+    @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
+    # Note: These fail for eg. 1/0 --> Inf.
+    # @assert iszero(zero(T) * one(T)) "*(0, 1) == 0 must hold for multiplication-like operators."
+    # @assert iszero(one(T) * zero(T)) "*(1, 0) == 0 must hold for multiplication-like operators."
+
+    na1, nb1, k1 = intersect_names(A, B, 1)
+    na2, nb2, k2 = intersect_names(A, B, 2)
+
+    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
+    if prod(size(C)) > 0 # check for the case of an empty result
+        # without the check above, these fail for mysterious indexing error reasons...
+        C[k1, k2] .+= A[k1, k2, named=false]
+        C[k1, k2] .*= B[k1, k2, named=false]
+    end
+
+    condense(C)
+end
+
 =#
 
 end # module

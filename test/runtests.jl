@@ -35,7 +35,7 @@ zero_dimensional_gauntlet(Assoc(fill(1)))
 zero_dimensional_gauntlet(Assoc([1], ["a"]))
 
 function one_dimensional_gauntlet(a)
-    @test a[fill(1), named=true] == Assoc(fill(1))
+    @test a[fill(1), named=true] == a
     @test a[named=true] == a
     @test a[1, named=true] == a
     @test a[1,1,1,named=true] == a
@@ -95,6 +95,12 @@ nzrange(sparse(rand(2,2)), 2) # Bug? Returned range is out of bounds.
 ---
 
 test that Symbol names are disallowed
+
+---
+
+d = Assoc(reshape([1, 2], 2, 1), ['a', 'x'], ['b'])
+d[fill(1), named=true]
+
 
 =#
 
