@@ -37,7 +37,6 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
-    # @show ax I dim
     if N == 1 && length(ax) == 1
         @argcheck(
             length(ax[1]) == prod(size(A)),
@@ -68,7 +67,7 @@ end
 
 function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
     # Use `named=true` to force a named_getindex call even with all basic indices .
-    # E.g. a[1, named=true] will return a 2d assoc rather than a scalar.
+    # E.g. a[1, named=true] will return an assoc rather than a scalar.
     named_indexing = if ismissing(named)
         # Check whether any indices are intended as names.
         any(
@@ -98,6 +97,7 @@ struct Assoc{T, N, Td} <: AbstractNamedArray{T, N, Td}
     data::Td
     axes::NTuple{N, NamedAxis}
     function Assoc(data::AbstractArray{T, N}, names::Tuple{Vararg{AbstractVector, N}}) where {T, N}
+        # todo: make these more efficient and non-materializing
         @argcheck all(allunique.(names)) "Names must be unique within each dimension."
         @argcheck ndims(data) == length(names) "Each data dimension must be named."
         @argcheck all(size(data) .== length.(names)) "Data and name dimensions must be equal: $(size(data)) $(length.(names))."
@@ -117,14 +117,15 @@ macro define_named_to_indices(A, T)
     end
 end
 
-# Allow Symbol here since indexing with one is allowed, though it is not allowed to be a name
-const assoc_indices = Union{String, Char, Symbol, Pair}
-@define_named_to_indices Assoc assoc_indices
+# Allow Symbol here since indexing with one is allowed, it is just not allowed to be a name.
+const assoc_name_types = Union{String, Char, Symbol, Pair}
+@define_named_to_indices Assoc assoc_name_types
 
 # Count Symbols as a name type so that they pass through to named_getindex
-isnametype(A::Assoc, dim, name::assoc_indices) = true
+isnametype(A::Assoc, dim, name::assoc_name_types) = true
 isnametype(A::Assoc, dim, name) = false
 
+# Missing names are handled in two places: here, and in toindices(axis, ::AbstractArray).
 name_to_index(A::Assoc, dim, I) = let axis = A.axes[dim]
     isnamedindex(axis, I) ? toindices(axis, I) : []
 end
@@ -160,11 +161,11 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
 
     @assert length(I′′) >= N "There should be at least as many (nonscalar) indices as array dimensions"
     value = let value = default_named_getindex(A, I′′)
-        # Handle zero-dimensional array indexing; Some zero-dimensional
-        # indexing behaviors result in a scalar when an array is expected.
+        # Handle zero-dimensional array indexing:
+        # Some zero-dimensional indexing behaviors result in a scalar when an array is expected.
         # Ensure that the value is always an array.
-        if N == 0 && !(value isa AbstractArray)
-            fill!(similar(Td), value)
+        if N == 0
+            value isa AbstractArray ? value : fill!(similar(Td), value)
         else
             value
         end
@@ -173,32 +174,31 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
     I_condensed = condense_indices(value)
     samesize = all(==(:), I_condensed)
 
-    condensed_value = samesize ? value : value[I_condensed...] #  ? value :
+    condensed_value = samesize ? value : value[I_condensed...]
     unparameterized(A)(
         condensed_value,
         ntuple(i -> A.axes[i].names[samesize ? I′′[i] : I′′[i][I_condensed[i]]], ndims(condensed_value))
     )
 end
 
+# 0d
 function condense_indices(a::AbstractArray{<:Any, 0})
     I = findall(!iszero, a)
     @assert length(I) <= 1
-    # Return a value such that a[val...] preserves dimensionality
-    # i.e. does not introduce a dimension
+    # Return a value such that a[val...] preserves dimensionality,
+    # i.e. does not introduce a new dimension
     (isempty(I) ? I : fill(first(I)),)
 end
 
-function condense_indices(a::AbstractVector)
+# nd
+function condense_indices(a::AbstractArray{<:Any, N}) where N
     I = findall(!iszero, a)
-    rows = sort!(unique(i[1] for i in I))
-    (length(rows) == size(a, 1) ? (:) : rows,)
-end
-
-function condense_indices(a::AbstractMatrix)
-    I = findall(!iszero, a)
-    rows = sort!(unique(i[1] for i in I))
-    cols = sort!(unique(i[2] for i in I))
-    (length(rows) == size(a, 1) ? (:) : rows, length(cols) == size(a, 2) ? (:) : cols)
+    ntuple(
+        dim -> let inds = sort!(unique(i[dim] for i in I))
+            length(inds) < size(a, N) ? inds : (:)
+        end,
+        N
+    )
 end
 
 #=

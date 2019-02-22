@@ -6,6 +6,11 @@ struct NamedAxis{Tn, Td, Tr}
     ranges::Tr # (group1=1:3, group2=4:7, ...)
 end
 
+function group_to_pair(group)
+    # Group is a vector of pairs all with the same first element, which is a Symbol.
+    first(first(group)) => Dict(v => i for (i, (_, v)) in enumerate(group))
+end
+
 function NamedAxis(names::AbstractVector)
     # The most generic NamedAxis constructor.
 
@@ -17,33 +22,36 @@ function NamedAxis(names::AbstractVector)
     # during indexing and algebraic operations.
     # We'll need to special-case them in `names()` but that's a less common operation.
 
+    # Next: Remove the `default_group =>` from the names array.
+    # (; default_group => Dict(v = i for (i, v) in enumerate(rest)), ...)
+
     # Filter out pairs and stable-sort them by group name
     I = BitArray(name isa Pair for name in names)
     pairs = sort!(names[I], by=first)
-    @assert all(==(Symbol), typeof.(first.(pairs))) "The first value of every name `Pair` must be a Symbol." # todo: why? for uniformity/ui
+    @assert(
+        all(pair -> typeof(first(pair)) == Symbol, pairs),
+        "For grouping purposes, the first value of every name `Pair` must be a Symbol."
+    )
     rest = names[.!I]
-    groups = vcat(default_group .=> rest, pairs)
 
-    # Compute the named tuple of name => index
-    dicts = let
-        kvs = Tuple(eduction(
-            PartitionBy(first) |> Map(group -> first(first(group)) => Dict(reverse.(enumerate(last.(group))))),
-            groups
-        ))
-        NamedTuple{first.(kvs)}(last.(kvs))
-    end
+    # Compute the named tuple of (group1=Dict(name => index, ...), ...)
+    dicts = (;
+        eduction(PartitionBy(first) |> Map(group_to_pair), pairs)...,
+        default_group => Dict(v => i for (i, v) in enumerate(rest))
+    )
 
-    # Compute the named tuple of index ranges
-
-    ranges = isempty(dicts) ? NamedTuple() : let
-        ax = axes(names, 1) # Ranges represent index ranges of the underlying name vector
-        ls = [length(g) for g in dicts]
+    # Compute the named tuple of index ranges into the underlying name vector
+    ranges = let
+        ax = axes(names, 1)
+        ls = Int[length(g) for g in dicts]
         cs = cumsum(ls)
         NamedTuple{keys(dicts)}(ax[i == 1 ? (1:l) : (cs[i-1]+1:cs[i])] for (i, l) in enumerate(ls))
     end
 
-    NamedAxis(groups, dicts, ranges)
+    NamedAxis(vcat(pairs, rest), dicts, ranges)
 end
+
+const gf = getfield
 
 function Base.union(a::NamedAxis, b::NamedAxis)
     # Union group names
@@ -52,11 +60,11 @@ function Base.union(a::NamedAxis, b::NamedAxis)
     # Union names within each group
     names = mapmany(groupnames) do groupname
         if haskey(a.dicts, groupname) && haskey(b.dicts, groupname)
-            groupname .=> union(keys(getfield(a.dicts, groupname)), keys(getfield(b.dicts, groupname)))
+            groupname .=> union(keys(gf(a.dicts, groupname)), keys(gf(b.dicts, groupname)))
         elseif haskey(a.dicts, groupname)
-            @view a.names[getfield(a.ranges, groupname)]
+            @view a.names[gf(a.ranges, groupname)]
         else @assert haskey(b.dicts, groupname)
-            @view b.names[getfield(b.ranges, groupname)]
+            @view b.names[gf(b.ranges, groupname)]
         end
     end
     NamedAxis(names)
@@ -68,7 +76,7 @@ function Base.intersect(a::NamedAxis, b::NamedAxis)
 
     # Intersect names within each group
     names = mapmany(groupnames) do groupname
-        groupname .=> intersect(keys(getfield(a.dicts, groupname)), keys(getfield(b.dicts, groupname)))
+        groupname .=> intersect(keys(gf(a.dicts, groupname)), keys(gf(b.dicts, groupname)))
     end
 
     # These names are already sorted in the appropriate fashion and are all pairs.
@@ -83,7 +91,7 @@ function Base.setdiff(a::NamedAxis, b::NamedAxis)
     # Difference group names
     groupnames = setdiff(keys(a.dicts), keys(b.dicts))
     names = mapmany(groupnames) do groupname
-        groupname .=> setdiff(keys(getfield(a.dicts, groupname)), keys(getfield(b.dicts, groupname)))
+        groupname .=> setdiff(keys(gf(a.dicts, groupname)), keys(gf(b.dicts, groupname)))
     end
     NamedAxis(names)
 end
@@ -92,16 +100,18 @@ end
 # Maybe two types of named axes — one with groups (and some ungrouped), and another that is plain ungrouped?
 # Yeah... This is a good question.
 
-# Another wrinkle: How do you disambiguate between a symbol that is a name, and a symbol that is gesturing towards a group?
-# Perhaps do not allow symbols as names — only as pair firsts. Otherwise say strings.
+# Idea: To get all "pairs" into one big group, store them as tuples instead. But then it's not the same name any more...
+
+# I want to try to go back to storing the plain non-pair names in names, and dealing with default_group only internally.
+
+# Allowing multiple group-representations for the same data feels bad — "ungrouping" should be a transformation done on the names.
+# Maybe using tuples instead of pairs. Though of course the names don't line up any more for e.g. mul if you do it that way...
 
 toindices(na::NamedAxis, names::AbstractVector) =
     collect(Iterators.flatten(toindices(na, name) for name in names if isnamedindex(na, name)))
 
-const gf = getfield
-
 toindices(na::NamedAxis, name::Symbol) = gf(na.ranges, name)
-toindices(na::NamedAxis, (k, v)::Pair) = gf(na.ranges, k)[gf(na.dicts, k)[v]]
+toindices(na::NamedAxis, (k, v)::Pair{Symbol, <:Any}) = gf(na.ranges, k)[gf(na.dicts, k)[v]]
 toindices(na::NamedAxis, name) = gf(na.ranges, default_group)[gf(na.dicts, default_group)[name]]
 
 isname(na::NamedAxis, (k, v)::Pair) = haskey(gf(na.dicts, k), v)
