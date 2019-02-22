@@ -1,27 +1,23 @@
 module AssociativeArrays
 
-using ArgCheck, LinearAlgebra, SparseArrays, Base.Iterators
-using SplitApplyCombine, OrderedCollections, PrettyTables
-using Base: tail
+using Transducers, SplitApplyCombine, Base.Iterators, ArgCheck
+export Assoc
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
 
-# Generic convenience constructor for named arrays.
-# ex. Assoc(data, names_1, names_2, ...)
-(::Type{Ta})(data::AbstractArray{T, N}, names::Vararg{AbstractArray, N}) where {Ta <: ANA, T, N} = Ta(data, names)
-
 # Base array methods
-
 Base.size(A::ANA) = size(data(A))
-Base.axes(A::ANA) = axes(data(A))
-
 Base.size(A::ANA, dim) = size(data(A), dim)
+
+Base.axes(A::ANA) = axes(data(A))
 Base.axes(A::ANA, dim) = axes(data(A), dim)
 
 Base.eltype(A::ANA) = eltype(data(A))
 Base.length(A::ANA) = length(data(A))
 Base.ndims(A::ANA) = ndims(data(A))
+
+Base.IndexStyle(A::ANA) = IndexStyle(data(A))
 Base.IndexStyle(::Type{<:ANA{<:Any, <:Any, Td}}) where {Td} = IndexStyle(Td)
 
 # low-level indexing
@@ -31,48 +27,28 @@ Base.getindex(A::ANA{T, N}, I::Vararg{Int, N}) where {T, N} = data(A)[I...]
 Base.setindex!(A::ANA, v, i::Int) = setindex!(data(A), v, i)
 Base.setindex!(A::ANA{T, N}, v, I::Vararg{Int, N}) where {T, N} = setindex!(data(A), v, I...)
 
-
-# We cannot in general know whether dimension names are preserved,
-# so we don't propagate names through `similar`.
-
 Base.similar(A::ANA) = similar(data(A))
 Base.similar(A::ANA, ::Type{S}) where {S} = similar(data(A), S)
 Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims)
 
+# Generic named array convenience constructor for eg. Assoc(data, names_1, names_2, ...)
+(::Type{Ta})(data::AbstractArray{T, N}, names::Vararg{AbstractArray, N}) where {Ta <: ANA, T, N} = Ta(data, names)
+
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
-    if length(ax) == 1
+    # @show ax I dim
+    if N == 1 && length(ax) == 1
         @argcheck(
-            length(first(ax)) != prod(size(A)),
-            BoundsError("Named linear indexing into an $(N)-dimensional named array is not supported " *
-                "because it is not a meaningful operation.", I)
+            length(ax[1]) == prod(size(A)),
+            BoundsError("Named linear indexing into an $(N)-d Assoc is not supported.", I)
         )
     end
-
-    to_indices(A, ax, (name_to_index(A, dim, I[1]), tail(I)...))
+    to_indices(A, ax, (name_to_index(A, dim, I[1]), Base.tail(I)...))
 end
 
-# Do not require `name_to_index(A, dim)` and leave the handling of missing names
-# up to the specific implementations of `name_to_index(A, dim, i)`.
-name_to_index(A, dim, I::AbstractArray) = [name_to_index(A, dim, i) for i in I]
+function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
+    nd = ndims.(I′)
 
-# named_getindex(A::ANA, I′) = default_named_getindex(A, I′)
-
-# Base.names(A::ANA, args...) = names(A, args...)
-# names(A::ANA, dim) = names(A)[dim]
-# names(A::ANA, dim, I) = names(A)[dim][I]
-
-const native_indices = Union{Int, AbstractArray}
-
-function argcheck_constructor(data, names)
-    @argcheck all(allunique.(names)) "Names must be unique within each dimension."
-    @argcheck ndims(data) == length(names) "Each data dimension must be named."
-    @argcheck all(size(data) .== length.(names)) "Data and name dimensions must be equal: $(size(data)) $(length.(names))."
-    @argcheck all(axes(data) .== axes.(names, 1)) "Names must have the same axis as the corresponding data axis."
-    @argcheck !any(T <: native_indices for T in eltype.(names)) "Names cannot be of type Int or AbstractArray."
-end
-
-function argcheck_named_indexing(N, I′, nd=ndims.(I′))
     # Function for basic argument validation during a named indexing operation.
     # Intended to be called from within user-defined named_getindex methods.
     # (I′ is our convention for "lowered" basic index values)
@@ -85,6 +61,8 @@ function argcheck_named_indexing(N, I′, nd=ndims.(I′))
         all(i <= N || n == 0 for (i, n) in enumerate(nd)),
         BoundsError("Trailing indices may not introduce new dimensions because it is not clear what the new names would be.", I′)
     )
+
+    data(A)[I′...]
 end
 
 function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
@@ -96,9 +74,9 @@ function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
         # Edge cases: non-basic indexes like Not
         any(
             if I[dim] isa AbstractArray
-                any(name -> ofnametype(A, dim, name), I[dim])
+                any(name -> isnametype(A, dim, name), I[dim])
             else
-                ofnametype(A, dim, I[dim])
+                isnametype(A, dim, I[dim])
             end
             # Iterate through 1:N since trailing indices can't possibly be named
             for dim in 1:min(length(I), N)
@@ -113,4 +91,88 @@ function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
     else
         data(A)[I′...]
     end
+end
+
+include("namedaxis.jl")
+
+struct Assoc{T, N, Td} <: AbstractNamedArray{T, N, Td}
+    data::Td
+    axes::NTuple{N, NamedAxis}
+    function Assoc(data::AbstractArray{T, N}, names::Tuple{Vararg{AbstractVector, N}}) where {T, N}
+        @argcheck all(allunique.(names)) "Names must be unique within each dimension."
+        @argcheck ndims(data) == length(names) "Each data dimension must be named."
+        @argcheck all(size(data) .== length.(names)) "Data and name dimensions must be equal: $(size(data)) $(length.(names))."
+        @argcheck all(axes(data) .== axes.(names, 1)) "Names must have the same axis as the corresponding data axis."
+        @argcheck !any(T <: Union{Int, AbstractArray, Symbol} for T in eltype.(names)) "Names cannot be of type Int, AbstractArray, or Symbol."
+        new{T, N, typeof(data)}(data, NamedAxis.(names))
+    end
+end
+
+data(A::Assoc) = A.data
+unparameterized(::Assoc) = Assoc
+
+macro define_named_to_indices(A, T)
+    quote
+        Base.to_indices(A::$A, ax, I::Tuple{Union{$T, AbstractArray{<:$T}}, Vararg{Any}}) =
+            named_to_indices(A, ax, I)
+    end
+end
+
+# Allow Symbol here since indexing with one is allowed, though it is not allowed to be a name
+const assoc_indices = Union{String, Char, Symbol, Pair}
+@define_named_to_indices Assoc assoc_indices
+
+# Count Symbols as a name type so that they pass through to named_getindex
+isnametype(A::Assoc, dim, name::assoc_indices) = true
+isnametype(A::Assoc, dim, name) = false
+
+name_to_index(A::Assoc, dim, I) = let axis = A.axes[dim]
+    isnamedindex(axis, I) ? toindices(axis, I) : []
+end
+name_to_index(A::Assoc, dim, I::AbstractArray) = toindices(A.axes[dim], I)
+
+descalarize(x::AbstractArray) = x
+descalarize(x) = [x]
+
+function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
+    # Lift scalar indices to arrays so that the result of indexing matches
+    # the dimensionality of A. We iterate rather than broadcast to avoid
+    # descalarizing trailing dimensions.
+    len = length(I′)
+    I′′ = if len == N
+        descalarize.(I′)
+    elseif len > N
+        # More indices than dimensions; only lift those <= N
+        Tuple(dim > N ? i : descalarize(i) for (dim, i) in enumerate(I′))
+    else @assert len < N
+        # More dimensions than indices; pad to N with singleton arrays.
+        singleton = [1]
+        Tuple(
+            if dim > len
+                # This means you tried to partially index into an array that has non-singleton trailing dimensions.
+                @assert isone(size(A, dim)) "Size in each trailing dimension must be 1."
+                singleton
+            else
+                descalarize(I′[dim])
+            end
+            for dim in 1:N
+        )
+    end
+
+    @assert length(I′′) >= N "There should be at least as many (nonscalar) indices as array dimensions"
+    value = default_named_getindex(A, I′′)
+    M = length(I′′)
+
+    unparameterized(A)(
+        if N == 0 && !(value isa AbstractArray)
+            # Handle the case of zero-dimensional array indexing; Julia has some
+            # inconsistent behaviors that may result in a scalar when an array is expected.
+            fill!(similar(Td), value)
+        else
+            value
+        end,
+        ntuple(i -> A.axes[i].names[I′′[i]], ndims(value)) # i > M ? () :
+    )# |> condense # todo: efficiency
+end
+
 end

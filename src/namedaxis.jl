@@ -1,4 +1,4 @@
-using Base.Iterators, Transducers, SplitApplyCombine
+const default_group = gensym("default_group")
 
 struct NamedAxis{Tn, Td, Tr}
     names::Tn  # name vector
@@ -6,8 +6,9 @@ struct NamedAxis{Tn, Td, Tr}
     ranges::Tr # named tuple of index range per group
 end
 
-function NamedAxis(names::Vector)
+function NamedAxis(names::AbstractVector)
     # The most generic NamedAxis constructor.
+
     # Sorts groups lexicographically by name. Note that the default group name needs to be
     # sorted in its proper place relative to the other names so that NamedAxis() on Non-groups
     # creates the same array as NamedAxis() with default_group pairs.
@@ -33,10 +34,12 @@ function NamedAxis(names::Vector)
     end
 
     # Compute the named tuple of index ranges
-    ranges = let
+
+    ranges = isempty(dicts) ? NamedTuple() : let
+        ax = axes(names, 1) # Ranges represent index ranges of the underlying name vector
         ls = [length(g) for g in dicts]
         cs = cumsum(ls)
-        NamedTuple{keys(dicts)}(i == 1 ? (1:l) : (cs[i-1]+1:cs[i]) for (i, l) in enumerate(ls))
+        NamedTuple{keys(dicts)}(ax[i == 1 ? (1:l) : (cs[i-1]+1:cs[i])] for (i, l) in enumerate(ls))
     end
 
     NamedAxis(groups, dicts, ranges)
@@ -85,18 +88,25 @@ function Base.setdiff(a::NamedAxis, b::NamedAxis)
     NamedAxis(names)
 end
 
-na = NamedAxis([1,2,3,4, :foo => :bar, 6, 5, :foo => :baz, :baz => :borz])
+# What happens if we have a group where the values are pairs?
+# Maybe two types of named axes — one with groups (and some ungrouped), and another that is plain ungrouped?
+# Yeah... This is a good question.
 
-nb = intersect(na, na)
+# Another wrinkle: How do you disambiguate between a symbol that is a name, and a symbol that is gesturing towards a group?
+# Perhaps do not allow symbols as names — only as pair firsts. Otherwise say strings.
 
-@show na.names
-@show nb.names
-println()
-@show na.dicts
-@show nb.dicts
-println()
-@show na.ranges
-@show nb.ranges
+toindices(na::NamedAxis, names::AbstractVector) =
+    collect(Iterators.flatten(toindices(na, name) for name in names if isnamedindex(na, name)))
 
-na == nb # Now similar up to sorting.
+# Base.get(nt::NamedTuple, key, default) = haskey(nt, key) ? getfield(nt, key) : default
+# getfield(na.ranges, name)
 
+toindices(na::NamedAxis, name::Symbol) = getfield(na.ranges, name)
+toindices(na::NamedAxis, (k, v)::Pair) = getfield(na.ranges, k)[getfield(na.dicts, k)[v]]
+toindices(na::NamedAxis, name) = getfield(na.ranges, default_group)[getfield(na.dicts, default_group)[name]]
+
+isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
+isnamedindex(na::NamedAxis, name) = isname(na, name)
+
+isname(na::NamedAxis, (k, v)::Pair) = haskey(getfield(na.dicts, k), v)
+isname(na::NamedAxis, name) = haskey(getfield(na.dicts, default_group), name)
