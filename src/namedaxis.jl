@@ -1,9 +1,9 @@
 const default_group = gensym("default_group")
 
 struct NamedAxis{Tn, Td, Tr}
-    names::Tn  # name vector
-    dicts::Td  # named tuple of group name => index within that group
-    ranges::Tr # named tuple of index range per group
+    names::Tn  # [name1, name2, ...]
+    dicts::Td  # (group1=Dict(name => index, ...), group2=...)
+    ranges::Tr # (group1=1:3, group2=4:7, ...)
 end
 
 function NamedAxis(names::AbstractVector)
@@ -98,15 +98,14 @@ end
 toindices(na::NamedAxis, names::AbstractVector) =
     collect(Iterators.flatten(toindices(na, name) for name in names if isnamedindex(na, name)))
 
-# Base.get(nt::NamedTuple, key, default) = haskey(nt, key) ? getfield(nt, key) : default
-# getfield(na.ranges, name)
+const gf = getfield
 
-toindices(na::NamedAxis, name::Symbol) = getfield(na.ranges, name)
-toindices(na::NamedAxis, (k, v)::Pair) = getfield(na.ranges, k)[getfield(na.dicts, k)[v]]
-toindices(na::NamedAxis, name) = getfield(na.ranges, default_group)[getfield(na.dicts, default_group)[name]]
+toindices(na::NamedAxis, name::Symbol) = gf(na.ranges, name)
+toindices(na::NamedAxis, (k, v)::Pair) = gf(na.ranges, k)[gf(na.dicts, k)[v]]
+toindices(na::NamedAxis, name) = gf(na.ranges, default_group)[gf(na.dicts, default_group)[name]]
+
+isname(na::NamedAxis, (k, v)::Pair) = haskey(gf(na.dicts, k), v)
+isname(na::NamedAxis, name) = haskey(gf(na.dicts, default_group), name)
 
 isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
 isnamedindex(na::NamedAxis, name) = isname(na, name)
-
-isname(na::NamedAxis, (k, v)::Pair) = haskey(getfield(na.dicts, k), v)
-isname(na::NamedAxis, name) = haskey(getfield(na.dicts, default_group), name)

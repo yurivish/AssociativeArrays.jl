@@ -1,7 +1,8 @@
 module AssociativeArrays
 
-using Transducers, SplitApplyCombine, Base.Iterators, ArgCheck
-export Assoc
+# Note: We don't currently use any of SparseArrays.
+using SparseArrays, Transducers, SplitApplyCombine, Base.Iterators, ArgCheck
+export Assoc, NamedAxis
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
@@ -66,12 +67,10 @@ function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
 end
 
 function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
-    # Use `named=true` to force a named array return value when indexing with basic indices.
-    # Note that "named" means to treat it like a named indexing operation, not that it treats your inputs as names.
+    # Use `named=true` to force a named_getindex call even with all basic indices .
     # E.g. a[1, named=true] will return a 2d assoc rather than a scalar.
     named_indexing = if ismissing(named)
-        # The goal here is to check whether any indices are names.
-        # Edge cases: non-basic indexes like Not
+        # Check whether any indices are intended as names.
         any(
             if I[dim] isa AbstractArray
                 any(name -> isnametype(A, dim, name), I[dim])
@@ -143,36 +142,115 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
         descalarize.(I′)
     elseif len > N
         # More indices than dimensions; only lift those <= N
-        Tuple(dim > N ? i : descalarize(i) for (dim, i) in enumerate(I′))
+        ntuple(dim -> dim > N ? I′[dim] : descalarize(I′[dim]), length(I′))
     else @assert len < N
         # More dimensions than indices; pad to N with singleton arrays.
         singleton = [1]
-        Tuple(
-            if dim > len
+        ntuple(
+            dim -> if dim > len
                 # This means you tried to partially index into an array that has non-singleton trailing dimensions.
                 @assert isone(size(A, dim)) "Size in each trailing dimension must be 1."
                 singleton
             else
                 descalarize(I′[dim])
-            end
-            for dim in 1:N
+            end,
+            N
         )
     end
 
     @assert length(I′′) >= N "There should be at least as many (nonscalar) indices as array dimensions"
-    value = default_named_getindex(A, I′′)
-    M = length(I′′)
-
-    unparameterized(A)(
+    value = let value = default_named_getindex(A, I′′)
+        # Handle zero-dimensional array indexing; Some zero-dimensional
+        # indexing behaviors result in a scalar when an array is expected.
+        # Ensure that the value is always an array.
         if N == 0 && !(value isa AbstractArray)
-            # Handle the case of zero-dimensional array indexing; Julia has some
-            # inconsistent behaviors that may result in a scalar when an array is expected.
             fill!(similar(Td), value)
         else
             value
-        end,
-        ntuple(i -> A.axes[i].names[I′′[i]], ndims(value)) # i > M ? () :
-    )# |> condense # todo: efficiency
+        end
+    end
+
+    I_condensed = condense_indices(value)
+    samesize = all(==(:), I_condensed)
+
+    condensed_value = samesize ? value : value[I_condensed...] #  ? value :
+    unparameterized(A)(
+        condensed_value,
+        ntuple(i -> A.axes[i].names[samesize ? I′′[i] : I′′[i][I_condensed[i]]], ndims(condensed_value))
+    )
 end
 
+function condense_indices(a::AbstractArray{<:Any, 0})
+    I = findall(!iszero, a)
+    @assert length(I) <= 1
+    # Return a value such that a[val...] preserves dimensionality
+    # i.e. does not introduce a dimension
+    (isempty(I) ? I : fill(first(I)),)
 end
+
+function condense_indices(a::AbstractVector)
+    I = findall(!iszero, a)
+    rows = sort!(unique(i[1] for i in I))
+    (length(rows) == size(a, 1) ? (:) : rows,)
+end
+
+function condense_indices(a::AbstractMatrix)
+    I = findall(!iszero, a)
+    rows = sort!(unique(i[1] for i in I))
+    cols = sort!(unique(i[2] for i in I))
+    (length(rows) == size(a, 1) ? (:) : rows, length(cols) == size(a, 2) ? (:) : cols)
+end
+
+#=
+function elementwise_mul_like(A::Assoc2D, B::Assoc2D, *)
+    z = zero(eltype(A)) * zero(eltype(B)) # Infer element type by doing a zero-zero test for now.
+    T = typeof(z) # promote_type(eltype(A), eltype(B))
+    @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
+    # Note: These fail for eg. 1/0 --> Inf.
+    # @assert iszero(zero(T) * one(T)) "*(0, 1) == 0 must hold for multiplication-like operators."
+    # @assert iszero(one(T) * zero(T)) "*(1, 0) == 0 must hold for multiplication-like operators."
+
+    na1, nb1, k1 = intersect_names(A, B, 1)
+    na2, nb2, k2 = intersect_names(A, B, 2)
+
+    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
+    if prod(size(C)) > 0 # check for the case of an empty result
+        # without the check above, these fail for mysterious indexing error reasons...
+        C[k1, k2] .+= A[k1, k2, named=false]
+        C[k1, k2] .*= B[k1, k2, named=false]
+    end
+
+    condense(C)
+end
+
+function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
+    T = promote_type(eltype(A), eltype(B))
+    @assert iszero(zero(T) + zero(T)) "+(0, 0) == 0 must hold for addition-like operators."
+    @assert isone(zero(T) + one(T)) "+(0, 1) == 1 must hold for addition-like operators."
+    @assert isone(one(T) + zero(T)) "+(1, 0) == 1 must hold for addition-like operators."
+
+    na1, nb1, k1 = union_names(A, B, 1)
+    na2, nb2, k2 = union_names(A, B, 2)
+
+    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
+    # todo: views
+    @show size(k1) size(k2)
+    if !isempty(na1) || !isempty(na2)
+        @show size(na1) size(na2) size(C[na1, na2])
+        # C[na1, na2, named=false] .+= data(A)
+        let inds = to_indices(C, (na1, na2))
+            data(C)[inds...] .+= data(A)
+        end
+    end
+    if !isempty(nb1) || !isempty(nb2)
+        # C[nb1, nb2, named=false] .+= data(B)
+        let inds = to_indices(C, (nb1, nb2))
+            data(C)[inds...] .+= data(B)
+        end
+    end
+
+    condense(C)
+end
+=#
+
+end # module
