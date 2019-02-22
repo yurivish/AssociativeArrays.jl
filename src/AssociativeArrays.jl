@@ -34,6 +34,13 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 # Generic named array convenience constructor for eg. Assoc(data, names_1, names_2, ...)
 (::Type{Ta})(data::AbstractArray{T, N}, names::Vararg{AbstractVector, N}) where {Ta <: ANA, T, N} = Ta(data, names)
 
+#=
+Notational conventions
+    I are indices. Might be anything — names, `Not`, arrays, integers.
+    I′ are "lowered" indices through `to_indices`.
+    I′′ are lowered + descalarized indices suitable for dimensionality-preserving indexing.
+=#
+
 function named_to_indices(A::ANA{T, N}, ax, I) where {T, N}
     dim = N - length(ax) + 1
     if N == 1 && length(ax) == 1
@@ -160,7 +167,7 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
         # - lift those <= N to 1d and make trailing indices 0d. This accounts for corner cases
         # with zero-dimensional indexing, ensuring that default_named_getindex returns an array:
         # compare `fill(1)[1]` and fill(1)[fill(1)].
-        ntuple(dim -> (dim > N ? descalarize_0d : descalarize)(I′[dim]), length(I′))
+        ntuple(dim -> dim > N ? descalarize_0d(I′[dim]) : descalarize(I′[dim]), length(I′))
     else @assert len < N
         # More dimensions than indices; pad to N with singleton arrays.
         singleton = [1]
@@ -211,11 +218,6 @@ end
 
 # We're always watching out for colons (:) in `condense` because
 # they represent opportunities to reuse existing arrays.
-function condense(a::AbstractArray)
-    I = condense_indices(a)
-    all(==(:), I) ? a : a[I]
-end
-
 function condense(A::Assoc)
     a = data(A)
     I = condense_indices(a)
@@ -253,10 +255,44 @@ function elementwise_add(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, + = +) where N
     I_a, I_b = to_indices(C, A.axes), to_indices(C, B.axes)
     data(C)[I_a...] .+= data(A)
     data(C)[I_b...] .+= data(B)
-    C
+    C # if A and B are condensed, C is condensed by construction.
 end
 
+const Assoc2D = Assoc{T, 2} where T
+
+function Base.:*(A::Assoc2D, B::Assoc2D)
+    ax = intersect(A.axes[2], B.axes[1])
+    value = A[:, ax, named=false] * B[ax, :, named=true]
+    condense(Assoc(value, (A.axes[1], B.axes[2])))
+end
+
+Base.adjoint(A::Assoc2D) = Assoc(adjoint(data(A)), reverse(A.axes))
+Base.transpose(A::Assoc2D) = Assoc(transpose(data(A)), reverse(A.axes))
+
 #=
+
+function mul_indices(A, A_i, B, B_i)
+    # Is there some sorting-based efficiency gain to be had here?
+    da = name_to_index(A, A_i)
+    db = name_to_index(B, B_i)
+    ks = collect(keys(da) ∩ keys(db))
+    ia = [da[k] for k in ks]
+    ib = [db[k] for k in ks]
+    ia, ib
+end
+
+function Base.:*(A::Assoc2D, B::Assoc2D) # nonsparse
+    ia, ib = mul_indices(A, 2, B, 1)
+    arr = data(A)[:, ia] * data(B)[ib, :]
+    condense(Assoc(arr, names(A, 1), names(B, 2)))
+end
+
+function Base.:*(A::sparse_assoc_t, B::sparse_assoc_t) # sparse
+    ia, ib = mul_indices(A, 2, B, 1)
+    arr = sparse(data(A))[:, ia] * sparse(data(B))[ib, :]
+    condense(Assoc(dropzeros!(arr), names(A, 1), names(B, 2)))
+end
+
 
 function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
     T = promote_type(eltype(A), eltype(B))
