@@ -74,19 +74,20 @@ isnamedindex(na::NamedAxis, name) = isname(na, name)
 
 const gf = getfield
 
-# Note: The `mapmany` approach used below will always create `NamedAxis` objects
-# with 1:N indices. Maybe what we really want to do here is simply return the names, not a NamedAxis?
-
-function Base.union(a::NamedAxis, b::NamedAxis)
+function union_names(a::NamedAxis, b::NamedAxis)
     # Union group names
     groupnames = union(keys(a.dicts), keys(b.dicts))
 
-    # Union the names within each group
-    names = mapmany(groupnames) do groupname
+    # Union the names within each group.
+    # We rely on type inference to produce an array of Pair;
+    # Assocs do not currently support indexing with Any[].
+    mapmany(groupnames) do groupname
         if haskey(a.dicts, groupname)
             if haskey(b.dicts, groupname)
-                # Note that this relies on default_group names being stored as pairs
-                groupname .=> union(keys(gf(a.dicts, groupname)), keys(gf(b.dicts, groupname)))
+                a_keys = keys(gf(a.dicts, groupname))
+                b_keys = keys(gf(b.dicts, groupname))
+                # This relies on default_group names being stored as pairs
+                groupname .=> (a_keys == b_keys ? a_keys : union(a_keys, b_keys))
             else
                 a.names[gf(b.ranges, groupname)]
             end
@@ -94,49 +95,27 @@ function Base.union(a::NamedAxis, b::NamedAxis)
             b.names[gf(b.ranges, groupname)]
         end
     end
-
-    NamedAxis(names)
-    # names
 end
 
-function Base.intersect(a::NamedAxis, b::NamedAxis)
+function intersect_names(a::NamedAxis, b::NamedAxis)
     # Intersect group names
     groupnames = intersect(keys(a.dicts), keys(b.dicts))
 
     # Intersect names within each group
-    names = mapmany(groupnames) do groupname
-        groupname .=> intersect(keys(gf(a.dicts, groupname)), keys(gf(b.dicts, groupname)))
+    mapmany(groupnames) do groupname
+        a_keys = keys(gf(a.dicts, groupname))
+        b_keys = keys(gf(b.dicts, groupname))
+        groupname .=> (a_keys == b_keys ? a_keys : intersect(a_keys, b_keys))
     end
-
-    # These names are already sorted in the appropriate fashion and are all pairs.
-    # We can use this to more efficiently construct the returned NamedAxis in the future.
-    # Another possible optimization is to check for axis or group equality.
-    # We could also directly construct a result NamedTuple rather than using `mapmany`:
-    # NamedTuple{groupnames}(... for groupname in groupnames)
-
-    NamedAxis(names)
-    # names
 end
 
-function Base.setdiff(a::NamedAxis, b::NamedAxis)
+function setdiff_names(a::NamedAxis, b::NamedAxis)
     # Difference group names
     groupnames = setdiff(keys(a.dicts), keys(b.dicts))
     names = mapmany(groupnames) do groupname
-        groupname .=> setdiff(keys(gf(a.dicts, groupname)), keys(gf(b.dicts, groupname)))
+        a_keys = keys(gf(a.dicts, groupname))
+        b_keys = keys(gf(b.dicts, groupname))
+        groupname .=> setdiff(a_keys, b_keys)
     end
-
-    NamedAxis(names)
-    # names
+    names
 end
-
-
-# What happens if we have a group where the values are pairs?
-# Maybe two types of named axes — one with groups (and some ungrouped), and another that is plain ungrouped?
-# Yeah... This is a good question.
-
-# Idea: To get all "pairs" into one big group, store them as tuples instead. But then it's not the same name any more...
-
-# I want to try to go back to storing the plain non-pair names in names, and dealing with default_group only internally.
-
-# Allowing multiple group-representations for the same data feels bad — "ungrouping" should be a transformation done on the names.
-# Maybe using tuples instead of pairs. Though of course the names don't line up any more for e.g. mul if you do it that way...

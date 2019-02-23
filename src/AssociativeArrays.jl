@@ -121,6 +121,7 @@ unparameterized(::Assoc) = Assoc
 
 macro define_named_to_indices(A, T)
     quote
+        # One problem with this is that you can't index with a Vector{Any} containing valid indices.
         Base.to_indices(A::$A, ax, I::Tuple{Union{$T, AbstractArray{<:$T}}, Vararg{Any}}) =
             named_to_indices(A, ax, I)
     end
@@ -236,7 +237,7 @@ function elementwise_mul(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, * = *) where N
     T = typeof(z) # promote_type(eltype(A), eltype(B))
     @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
 
-    axs = map(intersect, A.axes, B.axes)
+    axs = map(intersect_names, A.axes, B.axes)
     value = A[axs..., named=false] .* B[axs..., named=false]
     condense(Assoc(value, axs))
 end
@@ -247,7 +248,7 @@ function elementwise_add(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, + = +) where N
     @assert isone(zero(T) + one(T)) "+(0, 1) == 1 must hold for addition-like operators."
     @assert isone(one(T) + zero(T)) "+(1, 0) == 1 must hold for addition-like operators."
 
-    axs = map(union, A.axes, B.axes)
+    axs = map(union_names, A.axes, B.axes)
     z = issparse(data(A)) || issparse(data(B)) ? spzeros : zeros
     C = Assoc(z(T, length.(axs)), axs)
 
@@ -261,7 +262,7 @@ end
 const Assoc2D = Assoc{T, 2} where T
 
 function Base.:*(A::Assoc2D, B::Assoc2D)
-    ax = intersect(A.axes[2], B.axes[1])
+    ax = intersect_names(A.axes[2], B.axes[1])
     value = A[:, ax, named=false] * B[ax, :, named=true]
     condense(Assoc(value, (A.axes[1], B.axes[2])))
 end
