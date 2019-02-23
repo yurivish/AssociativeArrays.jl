@@ -108,12 +108,14 @@ end
 
 function Assoc(data::AbstractArray{T, N}, names::NTuple{N, AbstractVector}) where {T, N}
     # todo: make these more efficient and non-materializing
-    @argcheck all(allunique.(names)) "Names must be unique within each dimension."
-    @argcheck ndims(data) == length(names) "Each data dimension must be named."
-    @argcheck all(size(data) .== length.(names)) "Data and name dimensions must be equal: $(size(data)) $(length.(names))."
-    @argcheck all(axes(data) .== axes.(names, 1)) "Names must have the same axis as the corresponding data axis."
-    @argcheck !any(T <: Union{Int, AbstractArray, Symbol} for T in eltype.(names)) "Names cannot be of type Symbol, Int, or AbstractArray."
-    Assoc(data, NamedAxis.(names))
+    begin # @time
+        @argcheck all(allunique.(names)) "Names must be unique within each dimension."
+        @argcheck ndims(data) == length(names) "Each data dimension must be named."
+        @argcheck all(size(data) .== length.(names)) "Data and name dimensions must be equal: $(size(data)) $(length.(names))."
+        @argcheck all(axes(data) .== axes.(names, 1)) "Names must have the same axis as the corresponding data axis."
+        @argcheck !any(T <: Union{Int, AbstractArray, Symbol} for T in eltype.(names)) "Names cannot be of type Symbol, Int, or AbstractArray."
+    end
+    Assoc(data, NamedAxis.(names)) # @time
 end
 
 data(A::Assoc) = A.data
@@ -190,7 +192,7 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
 
     value = default_named_getindex(A, I′′)
 
-    I_condensed = condense_indices(value)
+    I_condensed = condense_indices(value) # @time
     samesize = all(==(:), I_condensed)
     condensed_value = samesize ? value : value[I_condensed...]
     unparameterized(A)(

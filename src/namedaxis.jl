@@ -11,8 +11,21 @@ function group_to_pair(group)
     first(first(group)) => Dict(v => i for (i, (_, v)) in enumerate(group))
 end
 
+# Compute the named tuple of index ranges into the underlying name vector
+function compute_ranges(names, dicts)
+    ax = axes(names, 1)
+    ls = Int[length(g) for g in dicts]
+    cs = cumsum(ls)
+    NamedTuple{keys(dicts)}(ax[i == 1 ? (1:l) : (cs[i-1]+1:cs[i])] for (i, l) in enumerate(ls))
+end
+
+NamedAxis(names, dicts) = NamedAxis(names, dicts, compute_ranges(names, dicts))
+
 function NamedAxis(names::AbstractVector)
     # The most generic NamedAxis constructor.
+    # todo: separte impl for AbstractVector{<:Pair}
+    # todo: what's a good sorting algorithm when the number of array values greatly exceeds the number of
+    # unique sort values? might want to just do a bucket sort for each unique pair name.
 
     # Sorts groups lexicographically by name. Note that the default group name needs to be
     # sorted in its proper place relative to the other names so that NamedAxis() on Non-groups
@@ -24,7 +37,8 @@ function NamedAxis(names::AbstractVector)
 
     # Filter out pairs and stable-sort them by group name
     I = BitArray(name isa Pair for name in names)
-    pairs = sort!(names[I], by=first)
+    _pairs = names[I]
+    pairs = issorted(_pairs, by=first) ? _pairs : sort!(_pairs, by=first)
     @assert(
         all(pair -> typeof(first(pair)) == Symbol, pairs),
         "For grouping purposes, the first value of every name `Pair` must be a Symbol."
@@ -40,13 +54,7 @@ function NamedAxis(names::AbstractVector)
         isempty(rest) ? [] : [default_group => Dict(v => i for (i, v) in enumerate(rest))]
     )
 
-    # Compute the named tuple of index ranges into the underlying name vector
-    ranges = let
-        ax = axes(names, 1)
-        ls = Int[length(g) for g in dicts]
-        cs = cumsum(ls)
-        NamedTuple{keys(dicts)}(ax[i == 1 ? (1:l) : (cs[i-1]+1:cs[i])] for (i, l) in enumerate(ls))
-    end
+    ranges = compute_ranges(names, dicts)
 
     NamedAxis(vcat(pairs, isempty(rest) ? [] : default_group .=> rest), dicts, ranges)
 end
@@ -119,3 +127,85 @@ function setdiff_names(a::NamedAxis, b::NamedAxis)
     end
     names
 end
+
+# Should we use an ArrayPartition from RecursiveArrayTools for the names vector, to account for type-instability?
+# https://github.com/JuliaDiffEq/RecursiveArrayTools.jl
+
+#=
+function csv2axes(csv)
+    names = Vector{Pair}[]
+    dicts = []
+    offset = 0
+    # Note: This does not take into account the fact that our axis wants _unique_ names.
+    # I wonder if we can construct the sparse array here simultaneously with axes.
+    for (groupname, vals) in pairs(columns(csv))
+        groupnames = map(val -> groupname => val, vals)
+        inds = (1:length(vals)) .+ offset
+        dict = Dict(zip(vals, inds))
+        push!(names, groupnames)
+        push!(dicts, groupname => dict)
+        offset += length(vals)
+    end
+    NamedAxis(ArrayPartition(names...), (; dicts...))
+end
+
+t = let t = Table(csv[1:50_000])
+    @time csv2axes(t)
+end;
+=#
+
+# Note: if we use `unique` it preserves order.
+#=
+
+offset = 0
+
+using Iterators
+
+for (col, vals) in cols
+    uniques = unique(vals)
+    groupnames = map(vals) do val
+        groupname => val
+    end
+    len = length(vals)
+    inds = 1:len
+    groupdict = Dict(zip(vals, inds)
+    # global inds = inds .+ offset; that is what we want to use for (I, J, V)
+    offset += length(vals)
+
+    I = (Row(i) for i in 1:len)
+    J = (groupdict[val] + offset for val in vals)
+    V = repeated(true, len)
+end
+
+---
+
+function csv2assoc(csv)
+    names = Vector[]
+    dicts = []
+    Js = Vector{Int}[]
+    offset = 0
+
+    cols = columns(csv)
+    ncols = length(cols)
+    for (groupname, vals) in pairs(cols)
+        uvals = unique(vals)
+        len = length(uvals)
+
+        groupnames = [groupname => val for val in uvals]
+        groupdict = Dict(zip(uvals, 1:len))
+        J = [groupdict[val] + offset for val in vals]
+
+        push!(names, groupnames)
+        push!(dicts, groupdict)
+        push!(Js, J)
+
+        offset += len
+    end
+
+    col_axis = NamedAxis(ArrayPartition(names...), NamedTuple{keys(cols)}(dicts))
+    row_axis = NamedAxis([:row => i for i in 1:length(csv)])
+    value = sparse(ArrayPartition([1:length(csv) for _ in 1:ncols]...), ArrayPartition(Js...), 1)
+    Assoc(value, (row_axis, col_axis))
+end
+
+=#
