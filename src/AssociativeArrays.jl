@@ -199,6 +199,10 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
         condensed_value,
         ntuple(dim -> names(A.axes[dim], I_condensed[dim] == (:) ? I′′[dim] : I′′[dim][I_condensed[dim]]), N)
     )
+
+    # todo: explore indexing optimizations when indexing with a group or groups —
+    # each one should turn into a range index; we should be able to check if that range index
+    # corresponds to a group inside an axis, and pull it out.
 end
 
 # 0-d
