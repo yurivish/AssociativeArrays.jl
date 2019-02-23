@@ -142,16 +142,16 @@ end
 name_to_index(A::Assoc, dim, I::AbstractArray) = toindices(A.axes[dim], I)
 name_to_index(A::Assoc, dim, I::NamedAxis) = name_to_index(A, dim, names(I))
 
-# turn a 0d array into a 1d array
+# 0d array => 1d array
 descalarize(x::AbstractArray{<:Any, 0}) = reshape(x, length(x))
-# keep 1+d arrays for downstream error checking
+# keep other n-d arrays for downstream error-checking
 descalarize(x::AbstractArray) = x
-# turn a scalar into a 1d array
+# scalar => 1d array
 descalarize(x) = [x]
 
-# turn a scalar into 0d array
+# scalar => 0d array
 descalarize_0d(x::Int) = fill(x)
-# keep everything else for downstream error checking
+# keep everything else for downstream error-checking
 descalarize_0d(x) = x
 
 function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
@@ -163,11 +163,13 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
         # Ensure a zero-dimensional result from default_named_getindex.
         # (See comment in the branch below)
         tuple(fill(1))
-    elseif len >= N
-        # More indices than dimensions;
-        # - lift those <= N to 1d and make trailing indices 0d. This accounts for corner cases
-        # with zero-dimensional indexing, ensuring that default_named_getindex returns an array:
-        # compare `fill(1)[1]` and fill(1)[fill(1)].
+    elseif len == N
+        # This is the most common branch.
+        descalarize.(I′)
+    elseif len > N
+        # More indices than dimensions; lift those <= N to 1d and make trailing indices 0d.
+        # This accounts for corner cases with zero-dimensional indexing, ensuring that
+        # default_named_getindex returns an array. Compare `fill(1)[1]` and fill(1)[fill(1)].
         ntuple(dim -> dim > N ? descalarize_0d(I′[dim]) : descalarize(I′[dim]), length(I′))
     else @assert len < N
         # More dimensions than indices; pad to N with singleton arrays.
@@ -217,7 +219,7 @@ function condense_indices(a::AbstractArray{<:Any, N}) where N
     )
 end
 
-# We're always watching out for colons (:) in `condense` because
+# We're watching out for colons (:) in `condense` because
 # they represent opportunities to reuse existing arrays.
 function condense(A::Assoc)
     a = data(A)
@@ -269,82 +271,5 @@ end
 
 Base.adjoint(A::Assoc2D) = Assoc(adjoint(data(A)), reverse(A.axes))
 Base.transpose(A::Assoc2D) = Assoc(transpose(data(A)), reverse(A.axes))
-
-#=
-
-function mul_indices(A, A_i, B, B_i)
-    # Is there some sorting-based efficiency gain to be had here?
-    da = name_to_index(A, A_i)
-    db = name_to_index(B, B_i)
-    ks = collect(keys(da) ∩ keys(db))
-    ia = [da[k] for k in ks]
-    ib = [db[k] for k in ks]
-    ia, ib
-end
-
-function Base.:*(A::Assoc2D, B::Assoc2D) # nonsparse
-    ia, ib = mul_indices(A, 2, B, 1)
-    arr = data(A)[:, ia] * data(B)[ib, :]
-    condense(Assoc(arr, names(A, 1), names(B, 2)))
-end
-
-function Base.:*(A::sparse_assoc_t, B::sparse_assoc_t) # sparse
-    ia, ib = mul_indices(A, 2, B, 1)
-    arr = sparse(data(A))[:, ia] * sparse(data(B))[ib, :]
-    condense(Assoc(dropzeros!(arr), names(A, 1), names(B, 2)))
-end
-
-
-function elementwise_add_like(A::Assoc2D, B::Assoc2D, +)
-    T = promote_type(eltype(A), eltype(B))
-    @assert iszero(zero(T) + zero(T)) "+(0, 0) == 0 must hold for addition-like operators."
-    @assert isone(zero(T) + one(T)) "+(0, 1) == 1 must hold for addition-like operators."
-    @assert isone(one(T) + zero(T)) "+(1, 0) == 1 must hold for addition-like operators."
-
-    na1, nb1, k1 = union_names(A, B, 1)
-    na2, nb2, k2 = union_names(A, B, 2)
-
-    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
-    # todo: views
-    @show size(k1) size(k2)
-    if !isempty(na1) || !isempty(na2)
-        @show size(na1) size(na2) size(C[na1, na2])
-        # C[na1, na2, named=false] .+= data(A)
-        let inds = to_indices(C, (na1, na2))
-            data(C)[inds...] .+= data(A)
-        end
-    end
-    if !isempty(nb1) || !isempty(nb2)
-        # C[nb1, nb2, named=false] .+= data(B)
-        let inds = to_indices(C, (nb1, nb2))
-            data(C)[inds...] .+= data(B)
-        end
-    end
-
-    condense(C)
-end
-
-function elementwise_mul_like(A::Assoc2D, B::Assoc2D, *)
-    z = zero(eltype(A)) * zero(eltype(B)) # Infer element type by doing a zero-zero test for now.
-    T = typeof(z) # promote_type(eltype(A), eltype(B))
-    @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
-    # Note: These fail for eg. 1/0 --> Inf.
-    # @assert iszero(zero(T) * one(T)) "*(0, 1) == 0 must hold for multiplication-like operators."
-    # @assert iszero(one(T) * zero(T)) "*(1, 0) == 0 must hold for multiplication-like operators."
-
-    na1, nb1, k1 = intersect_names(A, B, 1)
-    na2, nb2, k2 = intersect_names(A, B, 2)
-
-    C = Assoc(spzeros(T, length(k1), length(k2)), k1, k2)
-    if prod(size(C)) > 0 # check for the case of an empty result
-        # without the check above, these fail for mysterious indexing error reasons...
-        C[k1, k2] .+= A[k1, k2, named=false]
-        C[k1, k2] .*= B[k1, k2, named=false]
-    end
-
-    condense(C)
-end
-
-=#
 
 end # module
