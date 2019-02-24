@@ -12,8 +12,8 @@ const ANA = AbstractNamedArray
 Base.size(A::ANA) = size(data(A))
 Base.size(A::ANA, dim) = size(data(A), dim)
 
-Base.naxes(A::ANA) = axes(data(A))
-Base.naxes(A::ANA, dim) = axes(data(A), dim)
+Base.axes(A::ANA) = axes(data(A))
+Base.axes(A::ANA, dim) = axes(data(A), dim)
 
 Base.eltype(A::ANA) = eltype(data(A))
 Base.length(A::ANA) = length(data(A))

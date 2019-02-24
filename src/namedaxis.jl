@@ -21,7 +21,7 @@ end
 function compute_ranges(dicts)
     ls = Int[length(g) for g in dicts]
     cs = cumsum(ls)
-    NamedTuple{keys(dicts)}(Base.OneTo(l) : cs[i-1]+1:cs[i] for (i, l) in enumerate(ls))
+    NamedTuple{keys(dicts)}(i == 1 ? Base.OneTo(l) : cs[i-1]+1:cs[i] for (i, l) in enumerate(ls))
 end
 
 NamedAxis(dicts::NamedTuple) = NamedAxis(dicts, compute_ranges(dicts))
@@ -68,6 +68,9 @@ Base.length(na::NamedAxis) = sum(length, na.ranges) # length(na.names)
 
 Base.getindex(na::NamedAxis, ::Colon) = na
 function Base.getindex(na::NamedAxis, I::UnitRange)
+    # next steps: give namedaxes a parts for name partitions
+    # and then make this function return a named axis with the appropriate parts, dicts, and ranges.
+
     # if we have this, i think everything works.
     # having this involves having a `parts` of partitions of names by group
     # searchsortedfirst(i ->
@@ -78,22 +81,41 @@ function Base.getindex(na::NamedAxis, I::UnitRange)
 
     lo, hi = first(I), last(I)
 
+    rangevals = collect(rs) # no tuple methods for searchsorted
+
     # indices of the groups that I overlaps
-    a = searchsortedlast(rs, lo, by=first)
-    b = searchsortedfirst(rs, hi, by=last)
+    a = searchsortedlast(rangevals, lo, by=first)
+    b = searchsortedfirst(rangevals, hi, by=last)
+
 
     # whether there are partial groups at either end
-    partial_start = lo == first(rs[a])
-    partial_end = hi = last(rs[b])
+    partial_start = lo > first(rs[a])
+    partial_end = hi < last(rs[b])
 
-    # if partial_start
-    #     a += 1
-    # end
-    # if partial_end
-    #     b -= 1
-    # end
+    # @show a b partial_start partial_end
 
-    NamedTuple{keys(rs)[a:b]}(values(rs)[a:b])
+    outkeys = keys(rs)[a:b]
+
+    if partial_start
+        rsa = rs[a]
+        prefix = [rsa[lo-first(rsa)+1:end]]
+        a += 1
+    else
+        prefix = []
+    end
+
+    if partial_end
+        rsb = rs[b]
+        suffix = [rsb[1:hi-first(rsb)+1]]
+        b -= 1
+    else
+        suffix = []
+    end
+    # @show prefix
+    # @show collect(rs[x] for x in a:b)
+    # @show suffix
+
+    NamedTuple{outkeys}((prefix..., (rs[x] for x in a:b)..., suffix...))
 end
 
 # assoc indexing helper functions
