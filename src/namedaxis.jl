@@ -1,7 +1,13 @@
 const default_group = gensym("default_group")
 
-struct NamedAxis{Tn, Td, Tr}
-    names::Tn  # [name1, name2, ...]. These names are all pairs, using default_group if necessary.
+# in progress: translate to 1:n, not arbitrary axis.
+
+struct NamedAxis{Td <: NamedTuple, Tr <: NamedTuple}
+    # todo: do we need to store the names in one contiguous array? or at all?
+    #       they're implicitly contained in the dicts.
+    # names::Tn  # [name1, name2, ...]. These names are all pairs, using default_group if necessary.
+    # parts # nameparts (group1=names1, group2=...) # store the second half of names, from which the pair can be reconstructed
+    # ^ if we do this we can also do a "partindex" to get the indices as a named tuple, suitable for constructing another named axis
     dicts::Td  # (group1=Dict(name => index, ...), group2=...)
     ranges::Tr # (group1=1:3, group2=4:7, ...)
 end
@@ -12,14 +18,13 @@ function group_to_pair(group)
 end
 
 # Compute the named tuple of index ranges into the underlying name vector
-function compute_ranges(names, dicts)
-    ax = axes(names, 1)
+function compute_ranges(dicts)
     ls = Int[length(g) for g in dicts]
     cs = cumsum(ls)
-    NamedTuple{keys(dicts)}(ax[i == 1 ? (1:l) : (cs[i-1]+1:cs[i])] for (i, l) in enumerate(ls))
+    NamedTuple{keys(dicts)}(Base.OneTo(l) : cs[i-1]+1:cs[i] for (i, l) in enumerate(ls))
 end
 
-NamedAxis(names, dicts) = NamedAxis(names, dicts, compute_ranges(names, dicts))
+NamedAxis(dicts::NamedTuple) = NamedAxis(dicts, compute_ranges(dicts))
 
 function NamedAxis(names::AbstractVector)
     # The most generic NamedAxis constructor.
@@ -54,16 +59,44 @@ function NamedAxis(names::AbstractVector)
         isempty(rest) ? [] : [default_group => Dict(v => i for (i, v) in enumerate(rest))]
     )
 
-    ranges = compute_ranges(names, dicts)
-
-    NamedAxis(vcat(pairs, isempty(rest) ? [] : default_group .=> rest), dicts, ranges)
+    NamedAxis(dicts)
 end
 
-Base.length(na::NamedAxis) = length(na.names)
-Base.names(na::NamedAxis) = na.names
-Base.names(na::NamedAxis, i) = na.names[i]
+Base.length(na::NamedAxis) = sum(length, na.ranges) # length(na.names)
+# Base.names(na::NamedAxis) = na.names
+# Base.names(na::NamedAxis, i) = na.names[i]
 
-# indexing helper functions
+Base.getindex(na::NamedAxis, ::Colon) = na
+function Base.getindex(na::NamedAxis, I::UnitRange)
+    # if we have this, i think everything works.
+    # having this involves having a `parts` of partitions of names by group
+    # searchsortedfirst(i ->
+    #     na.ranges
+
+    # Identify the groups that overlap I
+    rs = na.ranges
+
+    lo, hi = first(I), last(I)
+
+    # indices of the groups that I overlaps
+    a = searchsortedlast(rs, lo, by=first)
+    b = searchsortedfirst(rs, hi, by=last)
+
+    # whether there are partial groups at either end
+    partial_start = lo == first(rs[a])
+    partial_end = hi = last(rs[b])
+
+    # if partial_start
+    #     a += 1
+    # end
+    # if partial_end
+    #     b -= 1
+    # end
+
+    NamedTuple{keys(rs)[a:b]}(values(rs)[a:b])
+end
+
+# assoc indexing helper functions
 
 toindices(na::NamedAxis, names::AbstractVector) =
     collect(Iterators.flatten(toindices(na, name) for name in names if isnamedindex(na, name)))
@@ -81,6 +114,47 @@ isnamedindex(na::NamedAxis, name) = isname(na, name)
 # set operations
 
 const gf = getfield
+
+index_dict(set) = Dict(v => i for (i, v) in enumerate(set))
+
+function Base.union(a::NamedAxis, b::NamedAxis)
+    # Union group names
+    groupnames = union(keys(a.dicts), keys(b.dicts))
+
+    # Union the names within each group.
+    # We rely on type inference to produce an array of Pair;
+    # Assocs do not currently support indexing with Any[].
+    dicts = map(groupnames) do groupname
+        if haskey(a.dicts, groupname)
+            if haskey(b.dicts, groupname)
+                a_dict = gf(a.dicts, groupname)
+                b_dict = gf(b.dicts, groupname)
+                a_keys, b_keys = keys(a_dict), keys(b_keys)
+                a_keys == b_keys ? a_dict : index_dict(union(a_keys, b_keys))
+            else
+                gf(a.dicts, groupname)
+            end
+        else
+            gf(b.dicts, groupname)
+        end
+    end
+    NamedTuple{groupnames}(dicts)
+end
+
+function Base.intersect(a::NamedAxis, b::NamedAxis)
+    # Intersect group names
+    groupnames = intersect(keys(a.dicts), keys(b.dicts))
+
+    # Intersect names within each group
+    dicts = map(groupnames) do groupname
+        a_dict = gf(a.dicts, groupname)
+        b_dict = gf(b.dicts, groupname)
+        a_keys, b_keys = keys(a_dict), keys(b_keys)
+        a_keys == b_keys ? a_dict : index_dict(intersect(a_keys, b_keys))
+    end
+
+    NamedTuple{groupnames}(dicts)
+end
 
 function union_names(a::NamedAxis, b::NamedAxis)
     # Union group names
@@ -117,16 +191,16 @@ function intersect_names(a::NamedAxis, b::NamedAxis)
     end
 end
 
-function setdiff_names(a::NamedAxis, b::NamedAxis)
-    # Difference group names
-    groupnames = setdiff(keys(a.dicts), keys(b.dicts))
-    names = mapmany(groupnames) do groupname
-        a_keys = keys(gf(a.dicts, groupname))
-        b_keys = keys(gf(b.dicts, groupname))
-        groupname .=> setdiff(a_keys, b_keys)
-    end
-    names
-end
+# function setdiff_names(a::NamedAxis, b::NamedAxis)
+#     # Difference group names
+#     groupnames = setdiff(keys(a.dicts), keys(b.dicts))
+#     names = mapmany(groupnames) do groupname
+#         a_keys = keys(gf(a.dicts, groupname))
+#         b_keys = keys(gf(b.dicts, groupname))
+#         groupname .=> setdiff(a_keys, b_keys)
+#     end
+#     names
+# end
 
 # Should we use an ArrayPartition from RecursiveArrayTools for the names vector, to account for type-instability?
 # https://github.com/JuliaDiffEq/RecursiveArrayTools.jl

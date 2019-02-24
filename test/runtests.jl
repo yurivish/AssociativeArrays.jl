@@ -101,7 +101,9 @@ test that Symbol names are disallowed
 d = Assoc(reshape([1, 2], 2, 1), ['a', 'x'], ['b'])
 d[fill(1), named=true]
 
+---
 
+test each of the argchecks in the assoc constructor
 =#
 
 

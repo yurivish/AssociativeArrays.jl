@@ -1,5 +1,7 @@
 module AssociativeArrays
 
+# todo: rename axes to naxes, for less confusion?
+
 using SparseArrays, Transducers, SplitApplyCombine, Base.Iterators, ArgCheck
 export Assoc, NamedAxis, condense
 
@@ -10,8 +12,8 @@ const ANA = AbstractNamedArray
 Base.size(A::ANA) = size(data(A))
 Base.size(A::ANA, dim) = size(data(A), dim)
 
-Base.axes(A::ANA) = axes(data(A))
-Base.axes(A::ANA, dim) = axes(data(A), dim)
+Base.naxes(A::ANA) = axes(data(A))
+Base.naxes(A::ANA, dim) = axes(data(A), dim)
 
 Base.eltype(A::ANA) = eltype(data(A))
 Base.length(A::ANA) = length(data(A))
@@ -98,11 +100,11 @@ include("namedaxis.jl")
 
 struct Assoc{T, N, Td} <: AbstractNamedArray{T, N, Td}
     data::Td
-    axes::NTuple{N, NamedAxis}
+    naxes::NTuple{N, NamedAxis}
 
     # Tuple{} for ambiguity resolution with the constructor accepting a tuple of `AbstractVector`s
-    function Assoc(data::AbstractArray{T, N}, axes::Union{Tuple{}, NTuple{N, NamedAxis}}) where {T, N}
-        new{T, N, typeof(data)}(data, axes)
+    function Assoc(data::AbstractArray{T, N}, naxes::Union{Tuple{}, NTuple{N, NamedAxis}}) where {T, N}
+        new{T, N, typeof(data)}(data, naxes)
     end
 end
 
@@ -130,7 +132,7 @@ macro define_named_to_indices(A, T)
 end
 
 # Allow Symbol here since indexing with one is allowed, it is just not allowed to be a name.
-const assoc_name_types = Union{String, Char, Symbol, Pair, NamedAxis}
+const assoc_name_types = Union{String, Char, Symbol, Pair} # , NamedAxis}
 @define_named_to_indices Assoc assoc_name_types
 
 # Count Symbols as a name type so that they pass through to named_getindex
@@ -138,11 +140,11 @@ isnametype(A::Assoc, dim, name::assoc_name_types) = true
 isnametype(A::Assoc, dim, name) = false
 
 # Missing names are handled in two places: here, and in toindices(axis, ::AbstractArray).
-name_to_index(A::Assoc, dim, I) = let axis = A.axes[dim]
-    isnamedindex(axis, I) ? toindices(axis, I) : []
+# todo: handle non-OneTo axes (by reindexing into axes(data(A), dim))
+name_to_index(A::Assoc, dim, I) = let na = A.naxes[dim]
+    isnamedindex(na, I) ? toindices(na, I) : []
 end
-name_to_index(A::Assoc, dim, I::AbstractArray) = toindices(A.axes[dim], I)
-name_to_index(A::Assoc, dim, I::NamedAxis) = name_to_index(A, dim, names(I))
+name_to_index(A::Assoc, dim, I::AbstractArray) = toindices(A.naxes[dim], I)
 
 # 0d array => 1d array
 descalarize(x::AbstractArray{<:Any, 0}) = reshape(x, length(x))
@@ -163,7 +165,7 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
     len = length(I′)
     I′′ = if len == N == 0
         # Ensure a zero-dimensional result from default_named_getindex.
-        # (See comment in the branch below)
+        # See the comment in the branch below for more details.
         tuple(fill(1))
     elseif len == N
         # This is the most common branch.
@@ -195,9 +197,12 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
     I_condensed = condense_indices(value) # @time
     samesize = all(==(:), I_condensed)
     condensed_value = samesize ? value : value[I_condensed...]
+
     unparameterized(A)(
         condensed_value,
-        ntuple(dim -> names(A.axes[dim], I_condensed[dim] == (:) ? I′′[dim] : I′′[dim][I_condensed[dim]]), N)
+        getindex.(A.naxes, I_condensed)
+        # this wants to be a tuple of NamedAxis
+        # ntuple(dim -> names(A.naxes[dim], I_condensed[dim] == (:) ? I′′[dim] : I′′[dim][I_condensed[dim]]), N)
     )
 
     # todo: explore indexing optimizations when indexing with a group or groups —
@@ -231,12 +236,13 @@ function condense(A::Assoc)
     a = data(A)
     I = condense_indices(a)
     all(==(:), I) && return A
-    unparameterized(A)(
+    Assoc(
         a[I...],
-        ntuple(
-            dim -> I[dim] == (:) ? names(A.axes[dim]) : names(A.axes[dim], I[dim]),
-            ndims(A)
-        )
+        getindex.(A.naxes, I)
+        # ntuple(
+        #     dim -> I[dim] == (:) ? names(A.naxes[dim]) : names(A.naxes[dim], I[dim]),
+        #     ndims(A)
+        # )
     )
 end
 
@@ -245,7 +251,7 @@ function elementwise_mul(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, * = *) where N
     T = typeof(z) # promote_type(eltype(A), eltype(B))
     @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
 
-    axs = map(intersect_names, A.axes, B.axes)
+    axs = map(intersect_names, A.naxes, B.naxes) # note: names, not axes
     value = A[axs..., named=false] .* B[axs..., named=false]
     condense(Assoc(value, axs))
 end
@@ -256,12 +262,12 @@ function elementwise_add(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, + = +) where N
     @assert isone(zero(T) + one(T)) "+(0, 1) == 1 must hold for addition-like operators."
     @assert isone(one(T) + zero(T)) "+(1, 0) == 1 must hold for addition-like operators."
 
-    axs = map(union_names, A.axes, B.axes)
+    axs = map(union_names, A.naxes, B.naxes) # note: names, not axes
     z = issparse(data(A)) || issparse(data(B)) ? spzeros : zeros
     C = Assoc(z(T, length.(axs)), axs)
 
-    # dotview does not accept keyword arguments so we can't do C[A.axes..., named=false]
-    I_a, I_b = to_indices(C, A.axes), to_indices(C, B.axes)
+    # dotview does not accept keyword arguments so we can't do C[A.naxes..., named=false]
+    I_a, I_b = to_indices(C, A.naxes), to_indices(C, B.naxes)
     data(C)[I_a...] .+= data(A)
     data(C)[I_b...] .+= data(B)
     C # if A and B are condensed, C is condensed by construction.
@@ -270,12 +276,12 @@ end
 const Assoc2D = Assoc{T, 2} where T
 
 function Base.:*(A::Assoc2D, B::Assoc2D)
-    ax = intersect_names(A.axes[2], B.axes[1])
+    ax = intersect_names(A.naxes[2], B.naxes[1])
     value = A[:, ax, named=false] * B[ax, :, named=true]
-    condense(Assoc(value, (A.axes[1], B.axes[2])))
+    condense(Assoc(value, (A.naxes[1], B.naxes[2])))
 end
 
-Base.adjoint(A::Assoc2D) = Assoc(adjoint(data(A)), reverse(A.axes))
-Base.transpose(A::Assoc2D) = Assoc(transpose(data(A)), reverse(A.axes))
+Base.adjoint(A::Assoc2D) = Assoc(adjoint(data(A)), reverse(A.naxes))
+Base.transpose(A::Assoc2D) = Assoc(transpose(data(A)), reverse(A.naxes))
 
 end # module
