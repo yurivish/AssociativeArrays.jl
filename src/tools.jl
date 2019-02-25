@@ -75,7 +75,7 @@ function vis(A::AbstractSparseMatrix, agg_fn, imsize=300, im_or_data=:im)
     end
 end
 
-vis(A::Assoc, args...) = vis(data(A), args...)
+vis(A::Assoc, args...) = vis(A.data, args...)
 
 #=
 smooth(a, b, d, α) = (a + d*α) / (b + α)

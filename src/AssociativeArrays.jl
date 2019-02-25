@@ -2,7 +2,8 @@ module AssociativeArrays
 
 # todo: rename axes to naxes, for less confusion?
 
-using SparseArrays, Transducers, SplitApplyCombine, Base.Iterators, ArgCheck
+using LinearAlgebra, SparseArrays, Base.Iterators
+using Transducers, SplitApplyCombine, ArgCheck
 export Assoc, NamedAxis, condense
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
@@ -194,20 +195,7 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
 
     value = default_named_getindex(A, I′′)
 
-    I_condensed = condense_indices(value) # @time
-    samesize = all(==(:), I_condensed)
-    condensed_value = samesize ? value : value[I_condensed...]
-
-    unparameterized(A)(
-        condensed_value,
-        getindex.(A.naxes, I_condensed)
-        # this wants to be a tuple of NamedAxis
-        # ntuple(dim -> names(A.naxes[dim], I_condensed[dim] == (:) ? I′′[dim] : I′′[dim][I_condensed[dim]]), N)
-    )
-
-    # todo: explore indexing optimizations when indexing with a group or groups —
-    # each one should turn into a range index; we should be able to check if that range index
-    # corresponds to a group inside an axis, and pull it out.
+    condense(Assoc(value, Tuple(A.naxes[dim][I′′[dim]] for dim in 1:N)))
 end
 
 # 0-d
@@ -236,14 +224,7 @@ function condense(A::Assoc)
     a = data(A)
     I = condense_indices(a)
     all(==(:), I) && return A
-    Assoc(
-        a[I...],
-        getindex.(A.naxes, I)
-        # ntuple(
-        #     dim -> I[dim] == (:) ? names(A.naxes[dim]) : names(A.naxes[dim], I[dim]),
-        #     ndims(A)
-        # )
-    )
+    Assoc(a[I...], getindex.(A.naxes, I))
 end
 
 function elementwise_mul(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, * = *) where N
@@ -266,7 +247,7 @@ function elementwise_add(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, + = +) where N
     z = issparse(data(A)) || issparse(data(B)) ? spzeros : zeros
     C = Assoc(z(T, length.(axs)), axs)
 
-    # dotview does not accept keyword arguments so we can't do C[A.naxes..., named=false]
+    # dotview does not accept keyword arguments so we can't do @view C[A.naxes..., named=false]
     I_a, I_b = to_indices(C, A.naxes), to_indices(C, B.naxes)
     data(C)[I_a...] .+= data(A)
     data(C)[I_b...] .+= data(B)
@@ -275,9 +256,17 @@ end
 
 const Assoc2D = Assoc{T, 2} where T
 
+# Sometimes it's necessary for the best performance to remove the wrapper before indexing.
+# Related issue: https://github.com/JuliaLang/julia/pull/30552
+unwrap_sparse_wrapper(x::Adjoint{<:Any, <:AbstractSparseMatrix}) = sparse(x)
+unwrap_sparse_wrapper(x::Transpose{<:Any, <:AbstractSparseMatrix}) = sparse(x)
+unwrap_sparse_wrapper(x) = x
+
 function Base.:*(A::Assoc2D, B::Assoc2D)
-    ax = intersect_names(A.naxes[2], B.naxes[1])
-    value = A[:, ax, named=false] * B[ax, :, named=true]
+    inds = intersect_names(A.naxes[2], B.naxes[1])
+    I_a = to_indices(A, (:, inds))
+    I_b = to_indices(B, (inds, :))
+    value = unwrap_sparse_wrapper(data(A))[I_a...] * unwrap_sparse_wrapper(data(B))[I_b...]
     condense(Assoc(value, (A.naxes[1], B.naxes[2])))
 end
 
