@@ -3,16 +3,11 @@ const default_group = gensym("default_group")
 # in progress: translate to 1:n, not arbitrary axis.
 
 struct NamedAxis{Tp <: NamedTuple, Td <: NamedTuple, Tr <: NamedTuple}
-    # every name is a pair of groupkey => groupval.
-    parts::Tp  # (groupkey=[groupval, ...], group2=...)
-    dicts::Td  # (groupkey=Dict(groupval => index, ...), group2=...)
-    ranges::Tr # (groupkey=1:3, group2=4:7, ...)
+    # every name is a pair of key => val.
+    parts::Tp  # (key1=[val, ...], key2=...)
+    dicts::Td  # (key1=Dict(val => index, ...), key2=...)
+    ranges::Tr # (key1=1:3, key2=4:7, ...)
 end
-
-# function group_to_pair(group)
-#     # Group is a vector of pairs all with the same first element, which is a Symbol.
-#     first(first(group)) => Dict(v => i for (i, (_, v)) in enumerate(group))
-# end
 
 index_dict(xs) = Dict(x => i for (i, x) in enumerate(xs))
 
@@ -32,8 +27,9 @@ function NamedAxis(names::AbstractVector)
     # todo: what's a good sorting algorithm when the number of array values greatly exceeds the number of
     # unique sort values? might want to just do a bucket sort for each unique pair name.
 
-    # Sorts groups lexicographically by name. Note that the default group name needs to be
+    # Sorts groups lexicographically by the group name. Note that the default group name needs to be
     # sorted in its proper place relative to the other names so that NamedAxis() on Non-groups
+    # ^ is this note still correct?
     # creates the same array as NamedAxis() with default_group pairs.
     # Non-group names are represented as belonging to a default group and are
     # stored as pairs in `names` to increase the efficiency of creating sub-arrays
@@ -42,93 +38,146 @@ function NamedAxis(names::AbstractVector)
 
     # Filter out pairs and stable-sort them by group name
     I = BitArray(name isa Pair for name in names)
-    _pairs = names[I]
-    pairs = issorted(_pairs, by=first) ? _pairs : sort!(_pairs, by=first)
+    pairs = names[I]
+    !issorted(pairs, by=first) && sort!(pairs, by=first)
+
     @assert(
         all(pair -> typeof(first(pair)) == Symbol, pairs),
         "For grouping purposes, the first value of every name `Pair` must be a Symbol."
     )
-    rest = names[.!I]
 
     # Note: We should assert that if pairs has default_group entries then rest is empty.
     # we can use searchsortedfirst.
 
-    # Compute the named tuple of (group1=Dict(name => index, ...), ...)
-    dicts = merge(
-        (; eduction(PartitionBy(first) |> Map(group_to_pair), pairs)...),
-        isempty(rest) ? [] : [default_group => Dict(v => i for (i, v) in enumerate(rest))]
+    # Compute the named tuple of (groupkey=Dict(groupval => index, ...), ...)
+    parts = merge(
+        (; eduction(PartitionBy(first) |> Map(xs -> first(first(xs)) => last.(xs)), pairs)...),
+        count(I) == length(names) ? [] : [default_group => names[.!I]]
     )
 
-    NamedAxis(dicts)
+    NamedAxis(parts)
 end
 
 Base.length(na::NamedAxis) = sum(length, na.ranges) # length(na.names)
-# Base.names(na::NamedAxis) = na.names
-# Base.names(na::NamedAxis, i) = na.names[i]
 
 Base.getindex(na::NamedAxis, ::Colon) = na
 function Base.getindex(na::NamedAxis, I::UnitRange)
-    # next steps: give namedaxes a parts for name partitions
-    # and then make this function return a named axis with the appropriate parts, dicts, and ranges.
-
-    # if we have this, i think everything works.
-    # having this involves having a `parts` of partitions of names by group
-    # searchsortedfirst(i ->
-    #     na.ranges
-
-    # Identify the groups that overlap I
+    lo, hi = extrema(I)
     rs = na.ranges
+    rv = collect(rs) # no tuple methods for searchsorted, so we need to collect.
 
-    lo, hi = first(I), last(I)
+    # indices of the groups overlapped by I
+    a = searchsortedlast(rv, lo, by=first)
+    b = searchsortedfirst(rv, hi, by=last)
 
-    rangevals = collect(rs) # no tuple methods for searchsorted
+    NamedAxis(
+        NamedTuple{keys(rs)[a:b]}(
+            if i == a && lo > first(rs[a])
+                # partial start
+                na.parts[a][lo-first(rs[a])+1:end]
+            elseif i == b && hi < last(rs[b])
+                # partial end
+                na.parts[b][1:hi-first(rs[b])+1]
+            else
+                na.parts[i]
+            end
+            for i in a:b
+        )
+    )
+end
 
-    # indices of the groups that I overlaps
-    a = searchsortedlast(rangevals, lo, by=first)
-    b = searchsortedfirst(rangevals, hi, by=last)
+function Base.getindex(na::NamedAxis, I::AbstractArray)
+    # todo: can we do away with this check?
+    isempty(I) && return NamedAxis([])
 
+    lo, hi = extrema(I)
+    rs = na.ranges
+    rv = collect(rs) # no tuple methods for searchsorted, so we need to collect.
 
-    # whether there are partial groups at either end
-    partial_start = lo > first(rs[a])
-    partial_end = hi < last(rs[b])
+    # indices of the groups overlapped by I
+    a = searchsortedlast(rv, lo, by=first)
+    b = searchsortedfirst(rv, hi, by=last)
+    # @show a b rs[a] I findall(in(rs[a]), I)
 
-    # @show a b partial_start partial_end
-
-    outkeys = keys(rs)[a:b]
-
-    if partial_start
-        rsa = rs[a]
-        prefix = [rsa[lo-first(rsa)+1:end]]
-        a += 1
-    else
-        prefix = []
-    end
-
-    if partial_end
-        rsb = rs[b]
-        suffix = [rsb[1:hi-first(rsb)+1]]
-        b -= 1
-    else
-        suffix = []
-    end
-    # @show prefix
-    # @show collect(rs[x] for x in a:b)
-    # @show suffix
-
-    NamedTuple{outkeys}((prefix..., (rs[x] for x in a:b)..., suffix...))
+    NamedAxis(
+        NamedTuple{keys(rs)[a:b]}(
+            let
+                rsi = rs[i]
+                found = findall(in(rsi), I)
+                if found == rsi
+                    na.parts[i]
+                else
+                    na.parts[i][I[found] .- first(rsi) .+ 1]
+                end
+            end
+            for i in a:b
+        )
+    )
 end
 
 # assoc indexing helper functions
 
-toindices(na::NamedAxis, names::AbstractVector) =
-    collect(Iterators.flatten(toindices(na, name) for name in names if isnamedindex(na, name)))
+function coalesce(arr::Vector{<:AbstractUnitRange})
+    # Coalesce arrays of contiguous indices into a compact range.
+    # This helps with things like group indexing.
+    length(arr) < 2 && return arr
+    step_between = first(arr[2]) - last(arr[1])
+
+    # we coalesce if
+    # 1. the step size between ranges is positive,
+    # 2. the step size between ranges is the same as the step size within each range,
+    # 3. all between steps are the same size.
+    can_coalesce = step_between > 0 &&
+        all(r -> step(r) == step_between, arr) &&
+        all(first(arr[i]) - last(arr[i-1]) == step_between for i in 3:length(arr))
+
+    if can_coalesce
+        # If `arr` can be represented as a steprange, return that range.
+        first(first(arr)):step_between:last(last(arr))
+    else
+        # Otherwise, flatten ranges into a single array
+        collect(Iterators.flatten(arr))
+    end
+
+end
+
+function coalesce(arr::Vector{Int})
+    # Coalesce arrays of contiguous indices into a compact range.
+    length(arr) < 2 && return arr
+    stepsize = arr[2] - arr[1]
+    if all(arr[i] - arr[i-1] == stepsize, 3:length(arr))
+        first(arr):stepsize:last(arr)
+    else
+        arr
+    end
+end
+
+
+function toindices(na::NamedAxis, names::AbstractVector)
+    # collect(Iterators.flatten(toindices(na, name) for name in names if isnamedindex(na, name)))
+    arr = [toindices(na, name) for name in names if isnamedindex(na, name)]
+
+    # If there is only one element in `arr`, return it. The element might be an array or int.
+    isempty(arr) && return []
+    length(arr) == 1 && return first(arr)
+    @assert length(arr) >= 2
+
+    if eltype(arr) <: AbstractUnitRange
+        coalesce(arr)
+    elseif eltype(arr) <: Int
+        coalesce(arr)
+    else
+        # Otherwise, flatten and return.
+        collect(Iterators.flatten(arr))
+    end
+end
 
 toindices(na::NamedAxis, name::Symbol) = gf(na.ranges, name)
 toindices(na::NamedAxis, (k, v)::Pair{Symbol, <:Any}) = gf(na.ranges, k)[gf(na.dicts, k)[v]]
 toindices(na::NamedAxis, name) = gf(na.ranges, default_group)[gf(na.dicts, default_group)[name]]
 
 isname(na::NamedAxis, (k, v)::Pair) = haskey(gf(na.dicts, k), v)
-isname(na::NamedAxis, name) = haskey(gf(na.dicts, default_group), name)
+isname(na::NamedAxis, name) = haskey(na.dicts, default_group) && haskey(gf(na.dicts, default_group), name)
 
 isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
 isnamedindex(na::NamedAxis, name) = isname(na, name)
@@ -137,8 +186,7 @@ isnamedindex(na::NamedAxis, name) = isname(na, name)
 
 const gf = getfield
 
-index_dict(set) = Dict(v => i for (i, v) in enumerate(set))
-
+#=
 function Base.union(a::NamedAxis, b::NamedAxis)
     # Union group names
     groupnames = union(keys(a.dicts), keys(b.dicts))
@@ -151,7 +199,7 @@ function Base.union(a::NamedAxis, b::NamedAxis)
             if haskey(b.dicts, groupname)
                 a_dict = gf(a.dicts, groupname)
                 b_dict = gf(b.dicts, groupname)
-                a_keys, b_keys = keys(a_dict), keys(b_keys)
+                a_keys, b_keys = keys(a_dict), keys(b_dict)
                 a_keys == b_keys ? a_dict : index_dict(union(a_keys, b_keys))
             else
                 gf(a.dicts, groupname)
@@ -171,12 +219,13 @@ function Base.intersect(a::NamedAxis, b::NamedAxis)
     dicts = map(groupnames) do groupname
         a_dict = gf(a.dicts, groupname)
         b_dict = gf(b.dicts, groupname)
-        a_keys, b_keys = keys(a_dict), keys(b_keys)
+        a_keys, b_keys = keys(a_dict), keys(b_dict)
         a_keys == b_keys ? a_dict : index_dict(intersect(a_keys, b_keys))
     end
 
     NamedTuple{groupnames}(dicts)
 end
+=#
 
 function union_names(a::NamedAxis, b::NamedAxis)
     # Union group names
@@ -202,10 +251,10 @@ function union_names(a::NamedAxis, b::NamedAxis)
 end
 
 """
-    Note that in general, the return value of this function is only valid
-    for the two arrays `a` and `b`. This is because the group name is returned
-    as an index for identical groups between the two arrays, and that group name
-    might index a different set of elements in another array.
+    Note that the return value of this function is only valid
+    for the two arrays `a` and `b`, since when two groups are identical,
+    the group name is returned. That group name might index a different
+    set of elements in another array.
 """
 function intersect_names(a::NamedAxis, b::NamedAxis)
     # Intersect group names

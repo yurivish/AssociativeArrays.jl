@@ -1,6 +1,6 @@
 module AssociativeArrays
 
-# todo: rename axes to naxes, for less confusion?
+# idea: work on a 'data-reshaper' user interface
 
 using LinearAlgebra, SparseArrays, Base.Iterators
 using Transducers, SplitApplyCombine, ArgCheck
@@ -209,6 +209,8 @@ end
 
 # n-d
 function condense_indices(a::AbstractArray{<:Any, N}) where N
+    isempty(a) && return ntuple(dim -> [], N)
+
     I = findall(!iszero, a)
     ntuple(
         dim -> let inds = sort!(unique(i[dim] for i in I))
@@ -218,7 +220,7 @@ function condense_indices(a::AbstractArray{<:Any, N}) where N
     )
 end
 
-# We're watching out for colons (:) in `condense` because
+# We watch out for colons (:) in `condense` because
 # they represent opportunities to reuse existing arrays.
 function condense(A::Assoc)
     a = data(A)
