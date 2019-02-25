@@ -2,7 +2,7 @@ module AssociativeArrays
 
 # idea: work on a 'data-reshaper' user interface
 
-using LinearAlgebra, SparseArrays, Base.Iterators
+using LinearAlgebra, SparseArrays, Base.Iterators, Base.Sort
 using Transducers, SplitApplyCombine, ArgCheck
 export Assoc, NamedAxis, condense
 

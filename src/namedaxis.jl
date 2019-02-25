@@ -16,11 +16,7 @@ function ranges(dicts::NamedTuple)
 end
 
 NamedAxis(parts) = NamedAxis(parts, map(index_dict, parts))
-NamedAxis(parts, dicts) = NamedAxis(
-    parts,
-    dicts,
-    ranges(dicts)
-)
+NamedAxis(parts, dicts) = NamedAxis(parts, dicts, ranges(dicts))
 
 function NamedAxis(names::AbstractVector)
     # The most generic NamedAxis constructor.
@@ -40,7 +36,7 @@ function NamedAxis(names::AbstractVector)
     # Filter out pairs and stable-sort them by group name
     I = BitArray(name isa Pair for name in names)
     pairs = names[I]
-    !issorted(pairs, by=first) && sort!(pairs, by=first)
+    !issorted(pairs, by=first) && sort!(pairs, by=first, alg=Sort.DEFAULT_STABLE)
 
     @assert(
         all(pair -> typeof(first(pair)) == Symbol, pairs),
@@ -62,6 +58,7 @@ end
 Base.length(na::NamedAxis) = sum(length, na.ranges)
 
 Base.getindex(na::NamedAxis, ::Colon) = na
+
 function Base.getindex(na::NamedAxis, I::UnitRange)
     lo, hi = extrema(I)
     rs = na.ranges
@@ -116,6 +113,10 @@ function Base.getindex(na::NamedAxis, I::AbstractArray)
     )
 end
 
+function Base.getindex(na::NamedAxis, I::Symbol)
+    NamedAxis((; I => gf(na.parts, I)), (; I => gf(na.dicts, I)))
+end
+
 # assoc indexing helper functions
 
 function coalesce(arr::Vector{<:AbstractUnitRange})
@@ -153,7 +154,6 @@ function coalesce(arr::Vector{Int})
     end
 end
 
-
 function toindices(na::NamedAxis, names::AbstractVector)
     # the `if` guard ignores missing names.
     arr = [toindices(na, name) for name in names if isnamedindex(na, name)]
@@ -184,6 +184,28 @@ isname(na::NamedAxis, name) = haskey(na.dicts, default_group) && haskey(gf(na.di
 
 isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
 isnamedindex(na::NamedAxis, name) = isname(na, name)
+
+
+function Base.sort(A::Assoc{<:Any, N}; dims, by, group=missing, rev=false, alg=Sort.DEFAULT_UNSTABLE) where N
+    @assert dims isa Int
+    # @assert group isa Symbol
+
+    group = if ismissing(group)
+        @assert length(A.naxes[dims].ranges) == 1 "When sorting an Assoc with multiple groups, you need to choose a group to sort."
+        first(keys(A.naxes[dims].ranges))
+    else
+        group
+    end
+
+    arr = A[ntuple(dim -> dim == dims ? group : (:), N)..., named=false]
+
+    I = sortperm(by.(eachslice(arr; dims=dims)), rev=rev, alg=alg)
+    # return I
+    Assoc(
+        arr[ntuple(dim -> dim == dims ? I : (:), N)...],
+        ntuple(dim -> dim == dims ? A.naxes[dims][group] : A.naxes[dim], N)
+    )
+end
 
 # set operations
 
