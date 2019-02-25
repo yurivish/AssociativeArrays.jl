@@ -1,7 +1,5 @@
 const default_group = gensym("default_group")
 
-# in progress: translate to 1:n, not arbitrary axis.
-
 struct NamedAxis{Tp <: NamedTuple, Td <: NamedTuple, Tr <: NamedTuple}
     # every name is a pair of key => val.
     parts::Tp  # (key1=[val, ...], key2=...)
@@ -11,15 +9,18 @@ end
 
 index_dict(xs) = Dict(x => i for (i, x) in enumerate(xs))
 
-# Compute the named tuple of index ranges into the underlying name vector
-function compute_ranges(dicts)
-    ls = Int[length(g) for g in dicts]
+function ranges(dicts::NamedTuple)
+    ls = Int[length(dict) for dict in dicts]
     cs = cumsum(ls)
     NamedTuple{keys(dicts)}(i == 1 ? Base.OneTo(l) : cs[i-1]+1:cs[i] for (i, l) in enumerate(ls))
 end
 
 NamedAxis(parts) = NamedAxis(parts, map(index_dict, parts))
-NamedAxis(parts, dicts) = NamedAxis(parts, dicts, compute_ranges(dicts))
+NamedAxis(parts, dicts) = NamedAxis(
+    parts,
+    dicts,
+    ranges(dicts)
+)
 
 function NamedAxis(names::AbstractVector)
     # The most generic NamedAxis constructor.
@@ -58,7 +59,7 @@ function NamedAxis(names::AbstractVector)
     NamedAxis(parts)
 end
 
-Base.length(na::NamedAxis) = sum(length, na.ranges) # length(na.names)
+Base.length(na::NamedAxis) = sum(length, na.ranges)
 
 Base.getindex(na::NamedAxis, ::Colon) = na
 function Base.getindex(na::NamedAxis, I::UnitRange)
@@ -123,10 +124,10 @@ function coalesce(arr::Vector{<:AbstractUnitRange})
     length(arr) < 2 && return arr
     step_between = first(arr[2]) - last(arr[1])
 
-    # we coalesce if
-    # 1. the step size between ranges is positive,
-    # 2. the step size between ranges is the same as the step size within each range,
-    # 3. all between steps are the same size.
+    # we coalesce if all step sizes are the same:
+    # 1. the first step between ranges is positive,
+    # 2. the step size within ranges is the same as the first step size between ranges,
+    # 3. all between steps are the same size as the first one.
     can_coalesce = step_between > 0 &&
         all(r -> step(r) == step_between, arr) &&
         all(first(arr[i]) - last(arr[i-1]) == step_between for i in 3:length(arr))
@@ -154,7 +155,7 @@ end
 
 
 function toindices(na::NamedAxis, names::AbstractVector)
-    # collect(Iterators.flatten(toindices(na, name) for name in names if isnamedindex(na, name)))
+    # the `if` guard ignores missing names.
     arr = [toindices(na, name) for name in names if isnamedindex(na, name)]
 
     # If there is only one element in `arr`, return it. The element might be an array or int.
@@ -172,6 +173,8 @@ function toindices(na::NamedAxis, names::AbstractVector)
     end
 end
 
+const gf = getfield
+
 toindices(na::NamedAxis, name::Symbol) = gf(na.ranges, name)
 toindices(na::NamedAxis, (k, v)::Pair{Symbol, <:Any}) = gf(na.ranges, k)[gf(na.dicts, k)[v]]
 toindices(na::NamedAxis, name) = gf(na.ranges, default_group)[gf(na.dicts, default_group)[name]]
@@ -183,8 +186,6 @@ isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
 isnamedindex(na::NamedAxis, name) = isname(na, name)
 
 # set operations
-
-const gf = getfield
 
 #=
 function Base.union(a::NamedAxis, b::NamedAxis)
@@ -242,10 +243,10 @@ function union_names(a::NamedAxis, b::NamedAxis)
                 # This relies on default_group names being stored as pairs
                 groupname .=> (a_keys == b_keys ? a_keys : union(a_keys, b_keys))
             else
-                a.names[gf(b.ranges, groupname)]
+                groupname .=> a.parts[gf(b.ranges, groupname)]
             end
         else
-            b.names[gf(b.ranges, groupname)]
+            groupname .=> b.parts[gf(b.ranges, groupname)]
         end
     end
 end

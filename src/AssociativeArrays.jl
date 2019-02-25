@@ -38,7 +38,7 @@ Base.similar(A::ANA, ::Type{S}, dims::Dims) where {S} = similar(data(A), S, dims
 (::Type{Ta})(data::AbstractArray{T, N}, names::Vararg{AbstractVector, N}) where {Ta <: ANA, T, N} = Ta(data, names)
 
 #=
-Notational conventions
+Notational conventions (all of these are tuples of indices, one per dimension)
     I are indices. Might be anything — names, `Not`, arrays, integers.
     I′ are "lowered" indices through `to_indices`.
     I′′ are lowered + descalarized indices suitable for dimensionality-preserving indexing.
@@ -127,6 +127,9 @@ unparameterized(::Assoc) = Assoc
 macro define_named_to_indices(A, T)
     quote
         # One problem with this is that you can't index with a Vector{Any} containing valid indices.
+        # The <:$T case catches arrays of eg. String, or Char.
+        # The >:$T case would catch arrays of Any, but also causes infinite recursion during some getindexes...
+        # AbstractArray{>:$T}
         Base.to_indices(A::$A, ax, I::Tuple{Union{$T, AbstractArray{<:$T}}, Vararg{Any}}) =
             named_to_indices(A, ax, I)
     end
@@ -145,6 +148,8 @@ isnametype(A::Assoc, dim, name) = false
 name_to_index(A::Assoc, dim, I) = let na = A.naxes[dim]
     isnamedindex(na, I) ? toindices(na, I) : []
 end
+
+name_to_index(A::Assoc{<:Any, 0}, dim, I::AbstractArray) = I
 name_to_index(A::Assoc, dim, I::AbstractArray) = toindices(A.naxes[dim], I)
 
 # 0d array => 1d array
@@ -195,7 +200,7 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
 
     value = default_named_getindex(A, I′′)
 
-    condense(Assoc(value, Tuple(A.naxes[dim][I′′[dim]] for dim in 1:N)))
+    condense(Assoc(value, ntuple(dim -> A.naxes[dim][I′′[dim]], N)))
 end
 
 # 0-d
