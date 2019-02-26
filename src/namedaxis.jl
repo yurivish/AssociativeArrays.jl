@@ -85,9 +85,7 @@ function Base.getindex(na::NamedAxis, I::UnitRange)
 end
 
 function Base.getindex(na::NamedAxis, I::AbstractArray)
-    # todo: can we do away with this check?
     isempty(I) && return NamedAxis([])
-
     lo, hi = extrema(I)
     rs = na.ranges
     rv = collect(rs) # no tuple methods for searchsorted, so we need to collect.
@@ -101,12 +99,27 @@ function Base.getindex(na::NamedAxis, I::AbstractArray)
         NamedTuple{keys(rs)[a:b]}(
             let
                 rsi = rs[i]
-                found = findall(in(rsi), I)
-                if found == rsi
-                    na.parts[i]
+
+                if I isa AbstractUnitRange
+                    # `findall` returns a range when I is a range, so this is more efficient.
+                    found = findall(in(rsi), I) # represents indices into I
+                    if found == rsi
+                        na.parts[i]
+                    else
+                        offset = first(rsi) - 1
+                        na.parts[i][I[found] .- offset]
+                    end
                 else
-                    na.parts[i][I[found] .- first(rsi) .+ 1]
+                    found = filter(in(rsi), I) # represents values of I
+                    offset = first(rsi) - 1
+                    if found == (rsi .- offset)
+                        na.parts[i]
+                    else
+                        na.parts[i][found .- offset]
+                    end
                 end
+
+
             end
             for i in a:b
         )
@@ -185,26 +198,20 @@ isname(na::NamedAxis, name) = haskey(na.dicts, default_group) && haskey(gf(na.di
 isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
 isnamedindex(na::NamedAxis, name) = isname(na, name)
 
-
-function Base.sort(A::Assoc{<:Any, N}; dims, by, group=missing, rev=false, alg=Sort.DEFAULT_UNSTABLE) where N
+function Base.sortperm(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE)
     @assert dims isa Int
-    # @assert group isa Symbol
+    @assert by in [sum, minimum, maximum] "`by` must be a reduction function, e.g. `sum` or `minimum`."
+    # reduce over the other dimension
+    sortperm(reshape(by(data(A), dims=(2, 1)[dims]), size(A, dims)), rev=rev, alg=alg)
+end
 
-    group = if ismissing(group)
-        @assert length(A.naxes[dims].ranges) == 1 "When sorting an Assoc with multiple groups, you need to choose a group to sort."
-        first(keys(A.naxes[dims].ranges))
-    else
-        group
-    end
-
-    arr = A[ntuple(dim -> dim == dims ? group : (:), N)..., named=false]
-
-    I = sortperm(by.(eachslice(arr; dims=dims)), rev=rev, alg=alg)
-    # return I
-    Assoc(
-        arr[ntuple(dim -> dim == dims ? I : (:), N)...],
-        ntuple(dim -> dim == dims ? A.naxes[dims][group] : A.naxes[dim], N)
-    )
+function Base.sort(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE, named=true)
+    # Note: As a consequence of the way NamedAxis indexing works,
+    # this reorders within each group but keeps groups separate in the same order as the original array.
+    # It's doing extra work, since `I` is the permutation vector sorting all slices together.
+    # these both take time, but the latter takes more than the former.
+    @time I = sortperm(A; dims=dims, by=by, rev=rev, alg=alg)
+    @time A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
 end
 
 # set operations

@@ -118,7 +118,7 @@ function Assoc(data::AbstractArray{T, N}, names::NTuple{N, AbstractVector}) wher
         @argcheck all(axes(data) .== axes.(names, 1)) "Names must have the same axis as the corresponding data axis."
         @argcheck !any(T <: Union{Int, AbstractArray, Symbol} for T in eltype.(names)) "Names cannot be of type Symbol, Int, or AbstractArray."
     end
-    Assoc(data, NamedAxis.(names)) # @time
+    condense(Assoc(data, NamedAxis.(names))) # @time
 end
 
 data(A::Assoc) = A.data
@@ -200,7 +200,17 @@ function named_getindex(A::Assoc{T, N, Td}, I′) where {T, N, Td}
 
     value = default_named_getindex(A, I′′)
 
-    condense(Assoc(value, ntuple(dim -> A.naxes[dim][I′′[dim]], N)))
+    a = Assoc(value, ntuple(dim -> A.naxes[dim][I′′[dim]], N))
+    if length.(I′′) == size(A)
+        # The size of the index sets is the same as the size of the input array.
+        # Because we do not allow duplicate names, this means that the new array
+        # is condensed iff the input array was condensed.
+        # The user-facing Assoc construction methods all ensure that the array is
+        # condensed, so we should be able to avoid the duplicate work here.
+        a
+    else
+        condense(a)
+    end
 end
 
 # 0-d
