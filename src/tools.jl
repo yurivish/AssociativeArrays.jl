@@ -67,7 +67,7 @@ function vis(A::AbstractSparseMatrix, agg_fn, imsize=300, im_or_data=:im)
         # out = out ./ maximum(out)
         # out = 1 .- out
         # out = adjust_histogram(GammaCorrection(), out, 2.2)
-        out = ImageContrastAdjustment.adjust_histogram(ImageContrastAdjustment.Equalization(), out, 256, minval = 0, maxval = 1)
+        out = ImageContrastAdjustment.adjust_histogram(ImageContrastAdjustment.Equalization(), out ./ let m = maximum(out); iszero(m) ? 1.0 : m end, 256, minval = 0, maxval = 1)
         # pal.(out)
         Gray.(1 .- out)
     else @assert im_or_data == :data
@@ -153,3 +153,34 @@ function rest_col_data(A, a_keys, b_keys)
 #     )
 end
 =#
+
+function csv2assoc(csv)
+    names = Vector[]
+    parts = []
+    dicts = []
+    Js = Vector{Int}[]
+    offset = 0
+
+    cols = columns(csv)
+    ncols = length(cols)
+    @time for (groupname, vals) in pairs(cols)
+        uvals = unique(vals)
+        len = length(uvals)
+
+        groupnames = [groupname => val for val in uvals]
+        groupdict = Dict(zip(uvals, 1:len))
+        J = [groupdict[val] + offset for val in vals]
+
+        push!(names, groupnames)
+        push!(dicts, groupdict)
+        push!(parts, uvals)
+        push!(Js, J)
+
+        offset += len
+    end
+    cf = collect ∘ flatten
+    @time col_axis = NamedAxis(NamedTuple{keys(cols)}(parts), NamedTuple{keys(cols)}(dicts))
+    @time row_axis = NamedAxis([:row => i for i in 1:length(csv)])
+    @time value = sparse(cf(1:length(csv) for _ in 1:ncols), cf(Js), 1)
+    @time Assoc(value, (row_axis, col_axis))
+end

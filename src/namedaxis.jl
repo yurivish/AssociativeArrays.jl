@@ -57,6 +57,9 @@ end
 
 Base.length(na::NamedAxis) = sum(length, na.ranges)
 
+# flatten and dynamically reconstruct pairs
+Base.names(na::NamedAxis) = (k => v for (k, vs) in pairs(na.parts) for v in vs)
+
 Base.getindex(na::NamedAxis, ::Colon) = na
 
 function Base.getindex(na::NamedAxis, I::UnitRange)
@@ -67,15 +70,24 @@ function Base.getindex(na::NamedAxis, I::UnitRange)
     # indices of the groups overlapped by I
     a = searchsortedlast(rv, lo, by=first)
     b = searchsortedfirst(rv, hi, by=last)
+    # @show a b lo > first(rs[a]) hi < last(rs[b])
+
+    # whether the starting and ending groups are only partially represented in the output
+    part_start = lo > first(rs[a])
+    part_end = hi < last(rs[b])
 
     NamedAxis(
         NamedTuple{keys(rs)[a:b]}(
-            if i == a && lo > first(rs[a])
+            if a == b
+                na.parts[i][
+                    (part_start ? lo-first(rs[i])+1 : 1):(part_end ? hi-first(rs[i])+1 : end)
+                ]
+            elseif i == a && part_start
                 # partial start
-                na.parts[a][lo-first(rs[a])+1:end]
-            elseif i == b && hi < last(rs[b])
+                na.parts[i][lo-first(rs[i])+1:end]
+            elseif i == b && part_end
                 # partial end
-                na.parts[b][1:hi-first(rs[b])+1]
+                na.parts[i][1:hi-first(rs[i])+1]
             else
                 na.parts[i]
             end
@@ -198,11 +210,18 @@ isname(na::NamedAxis, name) = haskey(na.dicts, default_group) && haskey(gf(na.di
 isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
 isnamedindex(na::NamedAxis, name) = isname(na, name)
 
+
 function Base.sortperm(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE)
     @assert dims isa Int
     @assert by in [sum, minimum, maximum] "`by` must be a reduction function, e.g. `sum` or `minimum`."
     # reduce over the other dimension
     sortperm(reshape(by(data(A), dims=(2, 1)[dims]), size(A, dims)), rev=rev, alg=alg)
+end
+
+function Base.partialsortperm(A::Assoc2D, k; dims, by, rev=false)
+    @assert dims isa Int
+    @assert by in [sum, minimum, maximum] "`by` must be a reduction function, e.g. `sum` or `minimum`."
+    partialsortperm(reshape(by(data(A), dims=(2, 1)[dims]), size(A, dims)), k, rev=rev)
 end
 
 function Base.sort(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE, named=true)
@@ -211,6 +230,15 @@ function Base.sort(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE, n
     # It's doing extra work, since `I` is the permutation vector sorting all slices together.
     # these both take time, but the latter takes more than the former.
     @time I = sortperm(A; dims=dims, by=by, rev=rev, alg=alg)
+    @time A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
+end
+
+function Base.partialsort(A::Assoc2D, k; dims, by, rev=false, named=true)
+    # Note: As a consequence of the way NamedAxis indexing works,
+    # this reorders within each group but keeps groups separate in the same order as the original array.
+    # It's doing extra work, since `I` is the permutation vector sorting all slices together.
+    # these both take time, but the latter takes more than the former.
+    @time I = partialsortperm(A, k; dims=dims, by=by, rev=rev)
     @time A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
 end
 

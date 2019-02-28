@@ -72,7 +72,7 @@ function default_named_getindex(A::ANA{T, N}, I′) where {T, N}
 end
 
 function Base.getindex(A::ANA{T, N}, I...; named=missing) where {T, N}
-    # Use `named=true` to force a named_getindex call even with all basic indices .
+    # Use `named=true` to force a named_getindex call even with all basic indices.
     # E.g. a[1, named=true] will return an assoc rather than a scalar.
     named_indexing = if ismissing(named)
         # Check whether any indices are intended as names.
@@ -249,9 +249,9 @@ function elementwise_mul(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, * = *) where N
     T = typeof(z) # promote_type(eltype(A), eltype(B))
     @assert iszero(z) "*(0, 0) == 0 must hold for multiplication-like operators."
 
-    axs = map(intersect_names, A.naxes, B.naxes) # note: names, not axes
-    value = A[axs..., named=false] .* B[axs..., named=false]
-    condense(Assoc(value, axs))
+    names = map(intersect_names, A.naxes, B.naxes) # note: names, not axes
+    value = A[names..., named=false] .* B[names..., named=false]
+    condense(Assoc(value, names))
 end
 
 function elementwise_add(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, + = +) where N
@@ -283,6 +283,7 @@ function Base.:*(A::Assoc2D, B::Assoc2D)
     inds = intersect_names(A.naxes[2], B.naxes[1])
     I_a = to_indices(A, (:, inds))
     I_b = to_indices(B, (inds, :))
+    # todo: optimize the transpose case when looking up by row
     value = unwrap_sparse_wrapper(data(A))[I_a...] * unwrap_sparse_wrapper(data(B))[I_b...]
     condense(Assoc(value, (A.naxes[1], B.naxes[2])))
 end
