@@ -62,7 +62,24 @@ Base.names(na::NamedAxis) = (k => v for (k, vs) in pairs(na.parts) for v in vs)
 
 Base.getindex(na::NamedAxis, ::Colon) = na
 
+function Base.getindex(na::NamedAxis, I::Base.Slice{<:Base.OneTo{Int}})
+    if length(na) == last(I)
+        # the index range spans the full named axis
+        na
+    else
+        # redispatch to the unit range method
+        na[1:last(I)]
+    end
+end
+
 function Base.getindex(na::NamedAxis, I::UnitRange)
+    # if the range represents a group, return that group
+    groupname = findfirst(==(I), na.ranges)
+    if !isnothing(groupname)
+        return NamedAxis((; groupname => getfield(na.parts, groupname)))
+    end
+
+    # otherwise, slice across groups.
     lo, hi = extrema(I)
     rs = na.ranges
     rv = collect(rs) # no tuple methods for searchsorted, so we need to collect.
@@ -209,38 +226,6 @@ isname(na::NamedAxis, name) = haskey(na.dicts, default_group) && haskey(gf(na.di
 
 isnamedindex(na::NamedAxis, name::Symbol) = haskey(na.dicts, name)
 isnamedindex(na::NamedAxis, name) = isname(na, name)
-
-
-function Base.sortperm(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE)
-    @assert dims isa Int
-    @assert by in [sum, minimum, maximum] "`by` must be a reduction function, e.g. `sum` or `minimum`."
-    # reduce over the other dimension
-    sortperm(reshape(by(data(A), dims=(2, 1)[dims]), size(A, dims)), rev=rev, alg=alg)
-end
-
-function Base.partialsortperm(A::Assoc2D, k; dims, by, rev=false)
-    @assert dims isa Int
-    @assert by in [sum, minimum, maximum] "`by` must be a reduction function, e.g. `sum` or `minimum`."
-    partialsortperm(reshape(by(data(A), dims=(2, 1)[dims]), size(A, dims)), k, rev=rev)
-end
-
-function Base.sort(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE, named=true)
-    # Note: As a consequence of the way NamedAxis indexing works,
-    # this reorders within each group but keeps groups separate in the same order as the original array.
-    # It's doing extra work, since `I` is the permutation vector sorting all slices together.
-    # these both take time, but the latter takes more than the former.
-    @time I = sortperm(A; dims=dims, by=by, rev=rev, alg=alg)
-    @time A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
-end
-
-function Base.partialsort(A::Assoc2D, k; dims, by, rev=false, named=true)
-    # Note: As a consequence of the way NamedAxis indexing works,
-    # this reorders within each group but keeps groups separate in the same order as the original array.
-    # It's doing extra work, since `I` is the permutation vector sorting all slices together.
-    # these both take time, but the latter takes more than the former.
-    @time I = partialsortperm(A, k; dims=dims, by=by, rev=rev)
-    @time A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
-end
 
 # set operations
 

@@ -4,7 +4,7 @@ module AssociativeArrays
 
 using LinearAlgebra, SparseArrays, Base.Iterators, Base.Sort
 using Transducers, SplitApplyCombine, ArgCheck
-export Assoc, NamedAxis, condense
+export Assoc, NamedAxis, condense, csv2assoc
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
@@ -228,11 +228,29 @@ function condense_indices(a::AbstractArray{<:Any, N}) where N
 
     I = findall(!iszero, a)
     ntuple(
-        dim -> let inds = sort!(unique(i[dim] for i in I))
-            length(inds) < size(a, N) ? inds : (:)
+        # todo: we could have a single `seen` reused throughout each loop
+        # - reset the relevant subsection to false each new iteration
+        # - check all(seen[1:size in this dim])
+        dim -> let seen = falses(size(a, dim))
+            for i in I
+                seen[i[dim]] = true
+            end
+            if all(seen)
+                (:)
+            else
+                # ensure a sorted return value
+                [i for (i, v) in seen if v]
+            end
         end,
         N
     )
+
+    # ntuple(
+    #     dim -> let inds = unique(i[dim] for i in I)
+    #         length(inds) < size(a, dim) ? sort!(inds) : (:)
+    #     end,
+    #     N
+    # )
 end
 
 # We watch out for colons (:) in `condense` because
@@ -290,5 +308,109 @@ end
 
 Base.adjoint(A::Assoc2D) = Assoc(adjoint(data(A)), reverse(A.naxes))
 Base.transpose(A::Assoc2D) = Assoc(transpose(data(A)), reverse(A.naxes))
+
+# sorting
+
+function Base.sortperm(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE)
+    @assert dims isa Int
+    @assert by in [sum, minimum, maximum] "`by` must be a reduction function, e.g. `sum` or `minimum`."
+    # reduce over the other dimension... this is odd ((2, 1)[dims])
+    sortperm(reshape(by(data(A), dims=dims), size(A, (2, 1)[dims])), rev=rev, alg=alg)
+end
+
+function Base.partialsortperm(A::Assoc2D, k; dims, by, rev=false)
+    @assert dims isa Int
+    @assert by in [sum, minimum, maximum] "`by` must be a reduction function, e.g. `sum` or `minimum`."
+    partialsortperm(reshape(by(data(A), dims=dims), size(A, (2, 1)[dims])), k, rev=rev)
+end
+
+function Base.sort(A::Assoc2D; dims, by, rev=false, alg=Sort.DEFAULT_UNSTABLE, named=true)
+    # Note: As a consequence of the way NamedAxis indexing works,
+    # this reorders within each group but keeps groups separate in the same order as the original array.
+    # It's doing extra work, since `I` is the permutation vector sorting all slices together.
+    # these both take time, but the latter takes more than the former.
+    @time I = sortperm(A; dims=dims, by=by, rev=rev, alg=alg)
+    @time A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
+end
+
+function Base.partialsort(A::Assoc2D, k; dims, by, rev=false, named=true)
+    # Note: As a consequence of the way NamedAxis indexing works,
+    # this reorders within each group but keeps groups separate in the same order as the original array.
+    # It's doing extra work, since `I` is the permutation vector sorting all slices together.
+    # these both take time, but the latter takes more than the former.
+    @time I = partialsortperm(A, k; dims=dims, by=by, rev=rev)
+    @time A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
+end
+
+# tools
+
+# note: LazySparse here is a great idea:
+# https://discourse.julialang.org/t/is-there-a-lazy-sparse-matrix-constructor/21422/2?u=yurivish
+
+using Tables
+
+function csv2assoc(csv)
+    names = Vector[]
+    parts = []
+    dicts = []
+    Js = Vector{Int}[]
+    offset = 0
+
+    cols = Tables.columns(csv)
+    ncols = length(cols)
+    @time for (groupname, vals) in pairs(cols)
+        uvals = unique(vals)
+        len = length(uvals)
+
+        groupnames = [groupname => val for val in uvals]
+        groupdict = Dict(zip(uvals, 1:len))
+        J = [groupdict[val] + offset for val in vals]
+
+        push!(names, groupnames)
+        push!(dicts, groupdict)
+        push!(parts, uvals)
+        push!(Js, J)
+
+        offset += len
+    end
+    cf = collect ∘ Iterators.flatten
+    @time col_axis = NamedAxis(NamedTuple{keys(cols)}(parts), NamedTuple{keys(cols)}(dicts))
+    @time row_axis = NamedAxis([:row => i for i in 1:length(csv)])
+    @time value = sparse(cf(1:length(csv) for _ in 1:ncols), cf(Js), 1)
+    @time Assoc(value, (row_axis, col_axis))
+end
+
+function frequency_data(t, col)
+    arr = t[:, col]
+    sums = sum(arr.data, dims=1)
+    vals = collect(names(arr.naxes[2]))
+    groups = group(i -> sums[i], 1:length(sums))
+    n_samples = 5
+    [
+        let value_count = length(indices), frequency_bin = freq
+            logbin = ceil.(Int, log10.(frequency_bin))
+            sublogbin = let x = 10 .^ (max.(0, logbin .- 1))
+                # `Int` ensures integer output for float inputs
+                x .* Int.(frequency_bin .÷ x)
+            end
+
+            (
+                frequency_bin=frequency_bin, # the frequency of occurrence represented by this bin
+                value_count=value_count, # the number of values of this frequency of occurrence
+                row_count=value_count * frequency_bin, # the number of rows with values of this frequency of occurrence
+                log_bin=logbin,
+                sub_log_bin=sublogbin,
+                # sample values in this bin
+                sample_values=sort!(map(collect, vals[length(indices) <= n_samples ? indices : sample(indices, n_samples, replace=false)])),
+            )
+        end
+        for (freq, indices) in groups
+    ]
+end
+# let a = a # books
+#     @time d = Dict(map(col -> col => go(a, col), keys(a.naxes[2].ranges)))
+#     # println(json(d))
+#     write("fatalities.json", json(d))
+# end
 
 end # module
