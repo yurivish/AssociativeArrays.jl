@@ -73,6 +73,12 @@ function Base.getindex(na::NamedAxis, I::Base.Slice{<:Base.OneTo{Int}})
 end
 
 function Base.getindex(na::NamedAxis, I::UnitRange)
+    #
+    # note: possible bugs
+    # todo: I was not thinking about reverse ranges when writing the code below;
+    # Ranges like 10:-2:1. The code here and elsewhere may use `first` and `last`
+    # instead of `minimum`, `maximum`, and `extrema`.
+    #
     # if the range represents a group, return that group
     groupname = findfirst(==(I), na.ranges)
     if !isnothing(groupname)
@@ -189,7 +195,7 @@ function coalesce(arr::Vector{Int})
     # Coalesce arrays of contiguous indices into a compact range.
     length(arr) < 2 && return arr
     stepsize = arr[2] - arr[1]
-    if all(arr[i] - arr[i-1] == stepsize, 3:length(arr))
+    if all(i -> arr[i] - arr[i-1] == stepsize, 3:length(arr))
         first(arr):stepsize:last(arr)
     else
         arr
@@ -277,7 +283,7 @@ function union_names(a::NamedAxis, b::NamedAxis)
     # Union the names within each group.
     # We rely on type inference to produce an array of Pair;
     # Assocs do not currently support indexing with Any[].
-    mapmany(groupnames) do groupname
+    names = map(groupnames) do groupname
         if haskey(a.dicts, groupname)
             if haskey(b.dicts, groupname)
                 a_keys = keys(gf(a.dicts, groupname))
@@ -291,6 +297,9 @@ function union_names(a::NamedAxis, b::NamedAxis)
             groupname .=> b.parts[gf(b.ranges, groupname)]
         end
     end
+
+    [x for xs in names for x in xs]
+
 end
 
 """
@@ -311,5 +320,5 @@ function intersect_names(a::NamedAxis, b::NamedAxis)
         a_keys == b_keys ? groupname : groupname .=> intersect(a_keys, b_keys)
     end
 
-    names
+    [x for xs in names for x in xs]
 end

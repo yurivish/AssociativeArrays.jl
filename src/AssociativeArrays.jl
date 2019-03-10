@@ -2,6 +2,24 @@ module AssociativeArrays
 
 # idea: work on a 'data-reshaper' user interface
 
+#=
+
+possible bug, noticed during iowa alcohol investigation
+
+to_indices(a, (:, [:Date]))
+> (Base.Slice(Base.OneTo(15712311)), 15712312:15714026)
+
+to_indices(a, (:, [:County]))
+> (Base.Slice(Base.OneTo(15712311)), 15728103:15728304)
+
+to_indices(a, (:, [:Date, :County]))
+> (Base.Slice(Base.OneTo(15712311)), [15712312, 15712313, 15712314, 15712315, 15712316, 15712317, 15712318, 15712319, 15712320, 15712321
+  …  15728295, 15728296, 15728297, 15728298, 15728299, 15728300, 15728301, 15728302, 15728303, 15728304])
+
+why does the range get expanded?
+
+=#
+
 using LinearAlgebra, SparseArrays, Base.Iterators, Base.Sort
 using Transducers, SplitApplyCombine, ArgCheck
 export Assoc, NamedAxis, condense, csv2assoc
@@ -239,7 +257,7 @@ function condense_indices(a::AbstractArray{<:Any, N}) where N
                 (:)
             else
                 # ensure a sorted return value
-                [i for (i, v) in seen if v]
+                [i for (i, v) in enumerate(seen) if v]
             end
         end,
         N
@@ -293,15 +311,20 @@ const Assoc2D = Assoc{T, 2} where T
 
 # Sometimes it's necessary for the best performance to remove the wrapper before indexing.
 # Related issue: https://github.com/JuliaLang/julia/pull/30552
-unwrap_sparse_wrapper(x::Adjoint{<:Any, <:AbstractSparseMatrix}) = sparse(x)
-unwrap_sparse_wrapper(x::Transpose{<:Any, <:AbstractSparseMatrix}) = sparse(x)
+# unwrap_sparse_wrapper(x::Adjoint{<:Any, <:AbstractSparseMatrix}) = sparse(x)
+# unwrap_sparse_wrapper(x::Transpose{<:Any, <:AbstractSparseMatrix}) = sparse(x)
 unwrap_sparse_wrapper(x) = x
 
 function Base.:*(A::Assoc2D, B::Assoc2D)
     inds = intersect_names(A.naxes[2], B.naxes[1])
-    I_a = to_indices(A, (:, inds))
-    I_b = to_indices(B, (inds, :))
+    # @show inds
+    I_a = descalarize.(to_indices(A, (:, inds))) # preserve 2-dimensionality
+    I_b = descalarize.(to_indices(B, (inds, :)))
+    # @show I_a I_b
     # todo: optimize the transpose case when looking up by row
+    # @show typeof(unwrap_sparse_wrapper(data(A))[I_a...])
+    # @show typeof(unwrap_sparse_wrapper(data(B))[I_b...])
+    # return unwrap_sparse_wrapper(data(A))[I_a...], unwrap_sparse_wrapper(data(B))[I_b...]
     value = unwrap_sparse_wrapper(data(A))[I_a...] * unwrap_sparse_wrapper(data(B))[I_b...]
     condense(Assoc(value, (A.naxes[1], B.naxes[2])))
 end
@@ -376,8 +399,17 @@ function csv2assoc(csv)
     cf = collect ∘ Iterators.flatten
     @time col_axis = NamedAxis(NamedTuple{keys(cols)}(parts), NamedTuple{keys(cols)}(dicts))
     @time row_axis = NamedAxis([:row => i for i in 1:length(csv)])
-    @time value = sparse(cf(1:length(csv) for _ in 1:ncols), cf(Js), 1)
+    @time value = sparse(cf(1:length(csv) for _ in 1:ncols), cf(Js), 1, length(row_axis), length(col_axis))
     @time Assoc(value, (row_axis, col_axis))
+end
+
+function logbin(freqs)
+    logbin = ceil.(Int, log10.(freqs))
+    sublogbin = let x = 10 .^ (max.(0, logbin .- 1))
+        # `Int` ensures integer output for float inputs
+        x .* Int.(freqs .÷ x)
+    end
+    logbin, sublogbin
 end
 
 function frequency_data(t, col)
@@ -388,18 +420,15 @@ function frequency_data(t, col)
     n_samples = 5
     [
         let value_count = length(indices), frequency_bin = freq
-            logbin = ceil.(Int, log10.(frequency_bin))
-            sublogbin = let x = 10 .^ (max.(0, logbin .- 1))
-                # `Int` ensures integer output for float inputs
-                x .* Int.(frequency_bin .÷ x)
-            end
+            # note: all these broadcasts aren't needed when this code runs on numbers
+            log_bin, sub_log_bin = logbin(freq)
 
             (
                 frequency_bin=frequency_bin, # the frequency of occurrence represented by this bin
                 value_count=value_count, # the number of values of this frequency of occurrence
                 row_count=value_count * frequency_bin, # the number of rows with values of this frequency of occurrence
-                log_bin=logbin,
-                sub_log_bin=sublogbin,
+                log_bin=log_bin,
+                sub_log_bin=sub_log_bin,
                 # sample values in this bin
                 sample_values=sort!(map(collect, vals[length(indices) <= n_samples ? indices : sample(indices, n_samples, replace=false)])),
             )
