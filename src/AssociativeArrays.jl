@@ -2,6 +2,8 @@ module AssociativeArrays
 
 # idea: work on a 'data-reshaper' user interface
 
+# todo: ⊗, ⊕
+
 #=
 
 possible bug, noticed during iowa alcohol investigation
