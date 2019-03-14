@@ -23,7 +23,7 @@ why does the range get expanded?
 =#
 
 using LinearAlgebra, SparseArrays, Base.Iterators, Base.Sort
-using Transducers, SplitApplyCombine, ArgCheck
+using Transducers, SplitApplyCombine, ArgCheck, Tables
 export Assoc, NamedAxis, condense, csv2assoc
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
@@ -371,8 +371,6 @@ end
 
 # note: LazySparse here is a great idea:
 # https://discourse.julialang.org/t/is-there-a-lazy-sparse-matrix-constructor/21422/2?u=yurivish
-
-using Tables
 
 function csv2assoc(csv)
     names = Vector[]

@@ -1,3 +1,7 @@
+module AssociativeArrayTools
+
+using AssociativeArrays
+
 export csv2triples, explode_sparse, LazySparse
 
 using CSV, Images, ImageContrastAdjustment
@@ -10,7 +14,6 @@ function csv2triples(path)
         ((row=(Id(i)), col=(prop => getproperty(row, prop)), val=1) for prop in propertynames(row))
     end
 end
-
 
 # triples = mapmany(enumerate(raw)) do (i, nt)
 #     [(row=Id(i), col=(k => v), val=1) for (k, v) in pairs(nt)]
@@ -215,4 +218,6 @@ function csv2assoc(csv)
     @time row_axis = NamedAxis([:row => i for i in 1:length(csv)])
     @time value = sparse(cf(1:length(csv) for _ in 1:ncols), cf(Js), 1)
     @time Assoc(value, (row_axis, col_axis))
+end
+
 end
