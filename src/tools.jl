@@ -1,5 +1,4 @@
-export csv2triples
-export explode_sparse
+export csv2triples, explode_sparse, LazySparse
 
 using CSV, Images, ImageContrastAdjustment
 
@@ -76,6 +75,39 @@ function vis(A::AbstractSparseMatrix, agg_fn, imsize=300, im_or_data=:im)
 end
 
 vis(A::Assoc, args...) = vis(A.data, args...)
+
+struct LazySparse{T, TV <: AbstractVector{T}, TI <: Integer, TVI <: AbstractVector{TI}}
+    I::TVI
+    J::TVI
+    V::TV
+    m::TI
+    n::TI
+end
+LazySparse{T}(m::TI, n::TI) where {T, TI} = LazySparse(TI[], TI[], T[], m, n)
+
+function Base.setindex!(a::LazySparse, v, i, j)
+    push!(a.I, i)
+    push!(a.J, j)
+    push!(a.V, v)
+    return v
+end
+SparseArrays.sparse(a::LazySparse) = sparse(a.I, a.J, a.V, a.m, a.n)
+
+#=
+LazySparse usage:
+
+m = n = 2
+A = LazySparse{Float64}(m, n)
+
+for i in 1:m
+  for j in 1:n
+    A[i,j] = rand()
+  end
+end
+
+sparse(A)
+
+=#
 
 #=
 smooth(a, b, d, α) = (a + d*α) / (b + α)
