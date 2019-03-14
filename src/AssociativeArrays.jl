@@ -2,7 +2,7 @@ module AssociativeArrays
 
 using LinearAlgebra, SparseArrays, Base.Iterators, Base.Sort
 using Transducers, SplitApplyCombine, ArgCheck, Tables
-export Assoc, NamedAxis, condense, table2assoc
+export Assoc, NamedAxis, condense
 
 abstract type AbstractNamedArray{T, N, Td} <: AbstractArray{T, N} end
 const ANA = AbstractNamedArray
@@ -243,6 +243,9 @@ function condense_indices(a::AbstractArray{<:Any, N}) where N
         N
     )
 
+    # The above is a more efficient implementation of this logic
+    # for returning a sorted list of the condensed indices into A,
+    # with a fallback to (:) for efficiency.
     # ntuple(
     #     dim -> let inds = unique(i[dim] for i in I)
     #         length(inds) < size(a, dim) ? sort!(inds) : (:)
