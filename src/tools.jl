@@ -79,6 +79,9 @@ end
 
 vis(A::Assoc, args...) = vis(A.data, args...)
 
+# LazySparse is from here:
+# https://discourse.julialang.org/t/is-there-a-lazy-sparse-matrix-constructor/21422/2
+
 struct LazySparse{T, TV <: AbstractVector{T}, TI <: Integer, TVI <: AbstractVector{TI}}
     I::TVI
     J::TVI
@@ -188,36 +191,5 @@ function rest_col_data(A, a_keys, b_keys)
 #     )
 end
 =#
-
-function csv2assoc(csv)
-    names = Vector[]
-    parts = []
-    dicts = []
-    Js = Vector{Int}[]
-    offset = 0
-
-    cols = columns(csv)
-    ncols = length(cols)
-    @time for (groupname, vals) in pairs(cols)
-        uvals = unique(vals)
-        len = length(uvals)
-
-        groupnames = [groupname => val for val in uvals]
-        groupdict = Dict(zip(uvals, 1:len))
-        J = [groupdict[val] + offset for val in vals]
-
-        push!(names, groupnames)
-        push!(dicts, groupdict)
-        push!(parts, uvals)
-        push!(Js, J)
-
-        offset += len
-    end
-    cf = collect ∘ flatten
-    @time col_axis = NamedAxis(NamedTuple{keys(cols)}(parts), NamedTuple{keys(cols)}(dicts))
-    @time row_axis = NamedAxis([:row => i for i in 1:length(csv)])
-    @time value = sparse(cf(1:length(csv) for _ in 1:ncols), cf(Js), 1)
-    @time Assoc(value, (row_axis, col_axis))
-end
 
 end

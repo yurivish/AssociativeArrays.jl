@@ -349,9 +349,6 @@ end
 
 # tools
 
-# note: LazySparse here is a great idea:
-# https://discourse.julialang.org/t/is-there-a-lazy-sparse-matrix-constructor/21422/2?u=yurivish
-
 function table2assoc(table)
     names = Vector[]
     parts = []
