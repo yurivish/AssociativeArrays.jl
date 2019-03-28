@@ -264,6 +264,7 @@ function condense(A::Assoc)
 end
 
 # todo: ⊗, ⊕
+# todo: optimize a' * a; the result is symmetric.
 
 function elementwise_mul(A::Assoc{<:Any, N}, B::Assoc{<:Any, N}, * = *) where N
     z = zero(eltype(A)) * zero(eltype(B)) # Infer element type by doing a zero-zero test for now.
@@ -349,5 +350,7 @@ function Base.partialsort(A::Assoc2D, k; dims, by, rev=false, named=true)
     I = partialsortperm(A, k; dims=dims, by=by, rev=rev)
     A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
 end
+
+include("tools.jl")
 
 end # module

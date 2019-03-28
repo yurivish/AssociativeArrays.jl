@@ -52,6 +52,11 @@ function NamedAxis(names::AbstractVector)
         count(I) == length(names) ? [] : [default_group => names[.!I]]
     )
 
+    for part in parts
+        @assert allunique(part) "Named axis names must be unique." # Note: Slow, but prevents bugs.
+    end
+
+
     NamedAxis(parts)
 end
 
@@ -317,7 +322,8 @@ function intersect_names(a::NamedAxis, b::NamedAxis)
         a_dict = gf(a.dicts, groupname)
         b_dict = gf(b.dicts, groupname)
         a_keys, b_keys = keys(a_dict), keys(b_dict)
-        a_keys == b_keys ? groupname : groupname .=> intersect(a_keys, b_keys)
+        # this will make the map return a heterogenous result; Vector{Any}
+        a_keys == b_keys ? [groupname] : groupname .=> intersect(a_keys, b_keys)
     end
 
     [x for xs in names for x in xs]

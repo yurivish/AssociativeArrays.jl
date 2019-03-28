@@ -1,17 +1,29 @@
-module AssociativeArrayTools
+# module AssociativeArrayTools
 
-using AssociativeArrays
+# using AssociativeArrays
 
-export csv2triples, explode_sparse, LazySparse
+# export csv2triples, explode_sparse,
 
-using CSV, Images, ImageContrastAdjustment
+# using CSV, Images, ImageContrastAdjustment
 
-function table2assoc(table)
+export table2assoc
+export LazySparse
+
+function table2assoc(table; rowfield=nothing)
+    # `rowfield` may be a Symbol designating a field (group) name, e.g. :id,
+    # in which case that field will be used as the row id. Values of that field
+    # must be unique per row.
     names = Vector[]
     parts = []
     dicts = []
     Js = Vector{Int}[]
     offset = 0
+
+    # todo: don't use the row field as a column
+    # todo: either generalize this to allow the input to be nontabular,
+    # ie. [(id=1, character=ginny w.), (id=1, character=harry p.), (id=2, ...), ...],
+    # lifting the constraint that each record corresponds to a row, and allowing this to build
+    # more general structures that include more than one 1 per group in the one-hot encoding
 
     cols = Tables.columns(table)
     ncols = length(cols)
@@ -32,7 +44,10 @@ function table2assoc(table)
     end
     cf = collect ∘ Iterators.flatten
     col_axis = NamedAxis(NamedTuple{keys(cols)}(parts), NamedTuple{keys(cols)}(dicts))
-    row_axis = NamedAxis([:row => i for i in 1:length(table)])
+    row_axis = isnothing(rowfield) ? NamedAxis([:row => i for i in 1:length(table)]) : col_axis[rowfield]
+    if !isnothing(rowfield)
+        @assert length(row_axis) == length(table) "The supplied row field ($rowfield) must currently be unique per row."
+    end
     value = sparse(cf(1:length(table) for _ in 1:ncols), cf(Js), 1, length(row_axis), length(col_axis))
     Assoc(value, (row_axis, col_axis))
 end
@@ -70,6 +85,8 @@ function frequency_data(t, col)
         for (freq, indices) in groups
     ]
 end
+
+#=
 
 function csv2triples(path)
     _, name = splitdir(path)
@@ -143,6 +160,7 @@ function vis(A::AbstractSparseMatrix, agg_fn, imsize=300, im_or_data=:im)
 end
 
 vis(A::Assoc, args...) = vis(A.data, args...)
+=#
 
 # LazySparse is from here:
 # https://discourse.julialang.org/t/is-there-a-lazy-sparse-matrix-constructor/21422/2
@@ -257,4 +275,4 @@ function rest_col_data(A, a_keys, b_keys)
 end
 =#
 
-end
+# end
