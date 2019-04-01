@@ -351,6 +351,10 @@ function Base.partialsort(A::Assoc2D, k; dims, by, rev=false, named=true)
     A[ifelse(dims == 1, I, :), ifelse(dims == 2, I, :), named=named]
 end
 
+# note: added untested. the goal is to fix per in the x' * x case when it is slow
+# by saying sparse(x') * x to fully realize the adjoint before multiplying
+SparseArrays.sparse(A::Assoc2D) = Assoc(sparse(data(A)), A.naxes)
+
 include("tools.jl")
 
 end # module
